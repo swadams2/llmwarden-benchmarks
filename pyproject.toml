@@ -1,13 +1,13 @@
 [project]
-name = "prompt-firewall-benchmarks"
+name = "llmwarden-benchmarks"
 version = "0.1.0"
-description = "Versioned evasion-case corpus and scorer comparing prompt-firewall against raw Prompt Guard 2"
+description = "Versioned evasion-case corpus and scorer comparing LLMWarden against raw Prompt Guard 2"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = [
-    # Pinned to a commit SHA, not a tag, per prompt-firewall's own README guidance on
+    # Pinned to a commit SHA, not a tag, per LLMWarden's own README guidance on
     # pinning anything security-sensitive -- this is exactly that context.
-    "prompt-firewall[classifier] @ git+https://github.com/swadams2/prompt-firewall.git@30d2c043f24064ed69065466f00ab048dca89456",  # v0.6.6
+    "llmwarden[classifier] @ git+https://github.com/swadams2/llmwarden.git@41c4ab817c1a7e1c96717a9ed47e8b80d0b9115a",  # v0.7.0
 ]
 
 [project.optional-dependencies]

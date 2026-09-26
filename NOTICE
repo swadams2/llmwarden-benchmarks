@@ -24,8 +24,8 @@ Not reused: garak's own payload strings for injection-adjacent content
 "malicious" ground truth here) and `slur_terms_en.json` (excluded on content
 grounds; Apache-2.0 permits reuse but there is no reason to import it here).
 
-This project also depends on (not bundles) `prompt-firewall`
-(https://github.com/swadams2/prompt-firewall, private, all-rights-reserved,
-same author) and, via prompt-firewall's `classifier` extra, on
+This project also depends on (not bundles) `llmwarden`
+(https://github.com/swadams2/llmwarden, private, all-rights-reserved,
+same author) and, via LLMWarden's `classifier` extra, on
 meta-llama/Llama-Prompt-Guard-2-22M (Llama 4 Community License) — see that
 project's own NOTICE for the full third-party attribution chain.

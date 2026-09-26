@@ -43,14 +43,14 @@ class Group:
 
 
 def _source_bucket(source: str) -> str:
-    return "garak-derived" if source.startswith("garak:") else "prompt-firewall (own tests/prose)"
+    return "garak-derived" if source.startswith("garak:") else "LLMWarden (own tests/prose)"
 
 
 def build_tables(
     corpus_path: str, corpus: list[JsonRecord], raw: dict[str, JsonRecord], wrapper: dict[str, JsonRecord]
 ) -> str:
     lines: list[str] = []
-    lines.append("# prompt-firewall vs. raw Prompt Guard 2 -- evasion corpus results\n")
+    lines.append("# LLMWarden vs. raw Prompt Guard 2 -- evasion corpus results\n")
     lines.append(
         f"Corpus: `{corpus_path}`, {len(corpus)} cases "
         f"({sum(1 for c in corpus if c['label'] == 'malicious')} malicious / "
@@ -59,8 +59,8 @@ def build_tables(
     lines.append(
         "**Methodology:** both systems are scored on the exact same `text` per case. "
         "Raw Prompt Guard 2 is `PromptGuard2Classifier().score(text)` compared against "
-        "the same profile threshold prompt-firewall itself uses -- this isolates the "
-        "effect of prompt-firewall's preprocessing (fast-path scanner, normalization, "
+        "the same profile threshold LLMWarden itself uses -- this isolates the "
+        "effect of LLMWarden's preprocessing (fast-path scanner, normalization, "
         "base64 candidate-feeding, windowing) rather than conflating it with a "
         "different decision boundary. Recall = caught / malicious cases. "
         "FPR = incorrectly flagged / benign cases (lower is better).\n"
@@ -146,7 +146,7 @@ def build_tables(
     lines.append("\n## Limitations\n")
     lines.append(
         "- Small corpus (77 cases) -- point-in-time evidence for the specific techniques "
-        "already identified in prompt-firewall's own test suite plus 10 garak-derived "
+        "already identified in LLMWarden's own test suite plus 10 garak-derived "
         "encoding transforms, not an exhaustive red-team.\n"
         "- Both systems share the same profile thresholds by design (see Methodology) -- "
         "this correctly isolates the preprocessing effect since both use the identical "
@@ -154,7 +154,7 @@ def build_tables(
         "threshold was independently tuned for raw Prompt Guard 2's own score "
         "distribution in isolation.\n"
         "- Scope is limited to the direct-input injection/jailbreak detection surface -- "
-        "prompt-firewall's PII scanning, secret scanning, and tool-call validation have "
+        "LLMWarden's PII scanning, secret scanning, and tool-call validation have "
         "no raw-Prompt-Guard-2 equivalent and are not compared here.\n"
         "- garak-derived cases apply each transform to only 2 trigger phrases -- breadth "
         "of technique coverage, not breadth of payload variation per technique.\n"

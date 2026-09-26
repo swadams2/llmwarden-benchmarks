@@ -1,8 +1,8 @@
-# prompt-firewall-benchmarks
+# llmwarden-benchmarks
 
-A versioned evasion-case corpus and scorer comparing [prompt-firewall](https://github.com/swadams2/prompt-firewall)'s
-full `PromptFirewall.scan()` pipeline against the bundled Llama Prompt Guard 2 classifier used
-completely raw, on the same input. Answers a concrete question: how much does prompt-firewall's
+A versioned evasion-case corpus and scorer comparing [LLMWarden](https://github.com/swadams2/llmwarden)'s
+full `LLMWarden.scan()` pipeline against the bundled Llama Prompt Guard 2 classifier used
+completely raw, on the same input. Answers a concrete question: how much does LLMWarden's
 own preprocessing (fast-path signature scanner, Unicode normalization, base64
 candidate-decoding, classifier windowing) actually change detection outcomes?
 
@@ -10,7 +10,7 @@ candidate-decoding, classifier windowing) actually change detection outcomes?
 
 ## Requires Git LFS
 
-Installing `prompt-firewall[classifier]` pulls prompt-firewall's Git-LFS-tracked classifier
+Installing `llmwarden[classifier]` pulls LLMWarden's Git-LFS-tracked classifier
 weights (`model.safetensors`, ~283MB) as a transitive dependency of the pip install below. Run
 `git lfs install` once per machine first — without it you'll get a 134-byte pointer file instead
 of the real weights, and the classifier will fail to load.
@@ -23,8 +23,8 @@ python -m venv .venv && source .venv/Scripts/activate  # or .venv/bin/activate o
 pip install -e ".[dev]"
 ```
 
-This installs `prompt-firewall[classifier]` pinned to a specific commit SHA (not a mutable tag —
-see `pyproject.toml`), matching prompt-firewall's own README guidance on pinning anything
+This installs `llmwarden[classifier]` pinned to a specific commit SHA (not a mutable tag —
+see `pyproject.toml`), matching LLMWarden's own README guidance on pinning anything
 security-sensitive.
 
 ## Reproduce the results
@@ -48,7 +48,7 @@ scripts.)
 
 77 cases (48 malicious / 29 benign), two sources:
 
-- **`prompt-firewall:`** (56 cases) — extracted from prompt-firewall's own test suite and
+- **`prompt-firewall:`** (56 cases) — extracted from LLMWarden's own test suite and
   README/security.md prose: leetspeak, base64 (standard/urlsafe/double/triple-encoded),
   zero-width/BOM/bidi-control insertion, full-width homoglyph substitution, truncation/windowing
   bypass. See `benchmarks/extract_corpus.py` for exact provenance (test name) per case.
@@ -56,7 +56,7 @@ scripts.)
   *transforms* (base16/hex, base32, ascii85, raw hex, uuencode, ROT13, atbash, morse, NATO
   phonetic, Unicode tag-character smuggling — reimplemented stdlib-only in
   `benchmarks/garak_transforms.py`, each cited against its garak source function, each verified
-  by a round-trip test before being trusted) applied to prompt-firewall's own already-established
+  by a round-trip test before being trusted) applied to LLMWarden's own already-established
   malicious trigger phrases, plus one benign high-perplexity payload from garak's own payload
   data. See `NOTICE` for the full attribution and what was deliberately *not* reused (garak's
   slur-term payload list, on content grounds; three encoders needing third-party packages
@@ -66,18 +66,18 @@ Full schema: `corpus/SCHEMA.md`.
 
 ## Scope boundary
 
-**Only the direct-input injection/jailbreak detection surface is compared** — prompt-firewall's
+**Only the direct-input injection/jailbreak detection surface is compared** — LLMWarden's
 `scan_fast_path()` and escalation classifier path. Raw Prompt Guard 2 has no equivalent to
-prompt-firewall's `scan_output()` (PII detection), `scan_secrets()`, or `ToolCallValidator` — so
+LLMWarden's `scan_output()` (PII detection), `scan_secrets()`, or `ToolCallValidator` — so
 whitespace-despacing, marker-collision, and tool-argument-nesting evasion cases that exist in
-prompt-firewall's own test suite are **not** in this corpus. Comparing capabilities raw Prompt
+LLMWarden's own test suite are **not** in this corpus. Comparing capabilities raw Prompt
 Guard 2 was never designed to have would not be a meaningful comparison.
 
 ## Methodology
 
-Both systems score the identical `text` per case. Raw Prompt Guard 2 is prompt-firewall's own
+Both systems score the identical `text` per case. Raw Prompt Guard 2 is LLMWarden's own
 public `PromptGuard2Classifier().score(text)` class used directly — not a reimplementation — with
-zero of the wrapper's preprocessing. The *same* profile threshold prompt-firewall itself uses
+zero of the wrapper's preprocessing. The *same* profile threshold LLMWarden itself uses
 (strict=0.1 / balanced=0.25 / permissive=0.4) is applied to both systems' scores, so results
 isolate exactly the preprocessing effect rather than a different decision boundary. See
 `RESULTS.md`'s own Limitations section for what this corpus does and doesn't establish — small

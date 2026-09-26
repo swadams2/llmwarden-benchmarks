@@ -6,7 +6,7 @@ garak's own runtime/plugin-loading machinery for a handful of stateless
 functions.
 
 Excluded (need a third-party package garak lazy-imports): Base2048, Ecoji,
-Zalgo. Excluded (already covered by prompt_firewall.scanner's own base64
+Zalgo. Excluded (already covered by llmwarden.scanner's own base64
 handling, no need to re-derive): the 4 base64 variants.
 
 Each function returns (encoded_text, decode_fn) is NOT the shape used here —

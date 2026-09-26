@@ -1,5 +1,5 @@
 """Applies garak-derived encoding transforms (benchmarks/garak_transforms.py)
-to prompt-firewall's own already-established malicious trigger phrases,
+to LLMWarden's own already-established malicious trigger phrases,
 extending encoding coverage past base64/leetspeak. Also folds in one benign,
 non-injection high-perplexity payload string from garak's own
 garak/data/payloads/encoded.json (Apache-2.0) as an extra FP-stress case.

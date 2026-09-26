@@ -2,12 +2,12 @@
 completely standalone -- no fast-path scanner, no Unicode normalization, no
 leetspeak/base64 handling. This is deliberately the library's own public
 `PromptGuard2Classifier` class used directly (not a reimplementation): see
-context/projects/prompt-firewall-benchmarks/prompt-firewall-benchmarks-spec.md
+context/projects/llmwarden-benchmarks/llmwarden-benchmarks-spec.md
 for why this is a fair, minimal "raw model" baseline.
 
-The same profile thresholds prompt-firewall itself uses (strict=0.1,
+The same profile thresholds LLMWarden itself uses (strict=0.1,
 balanced=0.25, permissive=0.4) are applied to the raw score, so results
-isolate exactly the effect of prompt-firewall's preprocessing rather than
+isolate exactly the effect of LLMWarden's preprocessing rather than
 conflating it with a different decision boundary.
 
 Run: python benchmarks/run_raw_promptguard2.py corpus/evasion_corpus_v1.jsonl > results/raw_promptguard2.jsonl
@@ -18,9 +18,9 @@ from __future__ import annotations
 import json
 import sys
 
-from prompt_firewall.classifier import PromptGuard2Classifier
+from llmwarden.classifier import PromptGuard2Classifier
 
-# Mirrors prompt_firewall.core._PROFILE_THRESHOLDS exactly (module-private,
+# Mirrors llmwarden.core._PROFILE_THRESHOLDS exactly (module-private,
 # not exported -- hardcoded here rather than reached into).
 PROFILE_THRESHOLDS = {"strict": 0.1, "balanced": 0.25, "permissive": 0.4}
 

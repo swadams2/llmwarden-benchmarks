@@ -15,6 +15,8 @@ huggingface_hub==1.30.0
 idna==3.19
 iniconfig==2.3.0
 Jinja2==3.1.6
+llmwarden @ git+https://github.com/swadams2/llmwarden.git@41c4ab817c1a7e1c96717a9ed47e8b80d0b9115a
+-e git+https://github.com/swadams2/llmwarden-benchmarks.git@f5c27c350aeffd2ed940d31827ed8fc41c20e985#egg=llmwarden_benchmarks
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3
 mdurl==0.1.2
@@ -24,8 +26,6 @@ nodejs-wheel-binaries==24.19.0
 numpy==2.5.3
 packaging==26.3
 pluggy==1.6.0
-prompt-firewall @ git+https://github.com/swadams2/prompt-firewall.git@30d2c043f24064ed69065466f00ab048dca89456
--e git+https://github.com/swadams2/prompt-firewall-benchmarks.git@a965b6c20300f79d9e3aeaec99e3df96c9767390#egg=prompt_firewall_benchmarks
 Pygments==2.21.0
 pytest==9.1.1
 PyYAML==6.0.3

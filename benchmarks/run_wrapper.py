@@ -1,4 +1,4 @@
-"""Scores every corpus entry with prompt-firewall's full PromptFirewall.scan()
+"""Scores every corpus entry with the full LLMWarden.scan()
 pipeline (fast-path scanner, normalization, base64 candidate-feeding,
 windowing) at each of its 3 profiles.
 
@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 import sys
 
-from prompt_firewall import PromptFirewall
-from prompt_firewall.classifier import PromptGuard2Classifier
+from llmwarden import LLMWarden
+from llmwarden.classifier import PromptGuard2Classifier
 
 PROFILES = ["strict", "balanced", "permissive"]
 
@@ -22,7 +22,7 @@ def main(corpus_path: str) -> None:
     # the same 283MB model 3 times over.
     shared_classifier = PromptGuard2Classifier()
     firewalls = {
-        profile: PromptFirewall(profile=profile, classifier=shared_classifier)
+        profile: LLMWarden(profile=profile, classifier=shared_classifier)
         for profile in PROFILES
     }
 
