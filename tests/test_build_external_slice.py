@@ -453,3 +453,15 @@ def test_frozen_v3_embeds_v2_and_holds_the_reviewed_external_slice() -> None:
     }
     present = {(_dataset_of(r["source"]), r["notes"].split(";")[0].removeprefix("upstream row ")) for r in external}
     assert not rejected & present
+
+
+def test_27_hf_token_never_reaches_builder_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sentinel = "hf_SENTINEL_" + "x" * 30
+    monkeypatch.setenv("HF_TOKEN", sentinel)
+    out = tmp_path / "v3.jsonl"
+    build_v3(V2_PATH, out, _ample_pool(), NO_EXCLUSIONS, seed=7)
+    written = [p for p in tmp_path.rglob("*") if p.is_file()]
+    assert written
+    assert not any(sentinel.encode() in p.read_bytes() for p in written)

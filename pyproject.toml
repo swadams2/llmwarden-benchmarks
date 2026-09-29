@@ -33,3 +33,6 @@ line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: runs a real model in its own venv; skips with a reason when prerequisites are absent",
+]
