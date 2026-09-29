@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from benchmarks.results_doc import historical_section
 from benchmarks.scorer import (
     DuplicateSystemError,
     ResultsMismatchError,
@@ -191,6 +192,9 @@ def test_no_system_ships_a_default_omits_the_own_default_section(tmp_path: Path)
 
 def _published_v1_tables() -> str:
     text = (REPO / "RESULTS.md").read_text(encoding="utf-8").replace("\r\n", "\n")
+    # The v3 tables come first; the published v1 tables sit in the frozen
+    # historical section after the marker.
+    text = historical_section(text)
     start = text.index("## Profile: `strict`")
     end = text.index("\n## Limitations")
     return text[start:end]

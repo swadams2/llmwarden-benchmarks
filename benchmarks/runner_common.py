@@ -54,9 +54,31 @@ def threshold_row(case_id: str, score: float, default_threshold: float | None) -
     }
 
 
-def score_raw_model_cases(cases: Iterable[Case], score: Callable[[str], float]) -> Iterator[Row]:
+def refused_row(case_id: str, exc: BaseException, blocked_default: bool | None) -> Row:
+    """A case the system refused to score (LLMWarden's InputTooLongError, whose
+    message tells the caller to reject the input). Counted as blocked, decided
+    2026-09-29, and flagged so RESULTS.md can disclose it."""
+    return {
+        "id": case_id,
+        "score": None,
+        "blocked_default": blocked_default,
+        **{f"blocked_{p}": True for p in PROFILE_THRESHOLDS},
+        "refused": type(exc).__name__,
+    }
+
+
+def score_raw_model_cases(
+    cases: Iterable[Case],
+    score: Callable[[str], float],
+    refusal: type[Exception] | tuple[type[Exception], ...] = (),
+) -> Iterator[Row]:
     for case in cases:
-        yield threshold_row(case["id"], score(case["text"]), default_threshold=None)
+        try:
+            value = score(case["text"])
+        except refusal as exc:
+            yield refused_row(case["id"], exc, blocked_default=None)
+            continue
+        yield threshold_row(case["id"], value, default_threshold=None)
 
 
 def write_rows(rows: Iterable[Row], out: TextIO) -> None:

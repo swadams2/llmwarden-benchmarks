@@ -46,7 +46,7 @@ class System:
     has_default: bool
 
 
-def _load_jsonl(path: str) -> list[JsonRecord]:
+def load_jsonl(path: str) -> list[JsonRecord]:
     with open(path, encoding="utf-8") as f:
         return [json.loads(line) for line in f]
 
@@ -87,7 +87,7 @@ def load_systems(corpus: list[JsonRecord], pairs: Sequence[tuple[str, str]]) -> 
     if dupes:
         raise DuplicateSystemError(f"duplicate system names: {dupes}")
     corpus_ids = [c["id"] for c in corpus]
-    return [_validated(name, _load_jsonl(path), corpus_ids) for name, path in pairs]
+    return [_validated(name, load_jsonl(path), corpus_ids) for name, path in pairs]
 
 
 def _source_bucket(source: str) -> str:
@@ -189,7 +189,7 @@ def render_tables(corpus: list[JsonRecord], systems: list[System]) -> str:
     return "\n".join(lines) + "\n" + render_threshold_sections(corpus, systems)
 
 
-def _parse_pair(arg: str) -> tuple[str, str]:
+def parse_pair(arg: str) -> tuple[str, str]:
     name, sep, path = arg.partition("=")
     if not sep or not name or not path:
         raise SystemExit(f"expected NAME=RESULTS.jsonl, got {arg!r}")
@@ -198,8 +198,8 @@ def _parse_pair(arg: str) -> tuple[str, str]:
 
 def main(corpus_path: str, pair_args: Sequence[str]) -> None:
     sys.stdout.reconfigure(encoding="utf-8")  # pyright: ignore[reportAttributeAccessIssue]
-    corpus = _load_jsonl(corpus_path)
-    systems = load_systems(corpus, [_parse_pair(a) for a in pair_args])
+    corpus = load_jsonl(corpus_path)
+    systems = load_systems(corpus, [parse_pair(a) for a in pair_args])
     n_mal = sum(c["label"] == "malicious" for c in corpus)
     sys.stdout.write(
         f"Corpus: `{corpus_path}`, {len(corpus)} cases "

@@ -1,3 +1,219 @@
+# Prompt-injection detectors on the LLMWarden evasion corpus
+
+Corpus: `corpus/evasion_corpus_v3.jsonl`, 277 cases (148 malicious / 129 benign).
+
+## Systems
+
+| System | What it is | What is scored | Own shipped decision |
+|---|---|---|---|
+| LLMWarden | LLMWarden v0.7.0 (`41c4ab8`) | full `scan()` pipeline: fast-path signature scanner, Unicode normalization, encoding candidate-feeding and overlapping-window classification over Llama Prompt Guard 2 (22M) | `balanced` profile: block when score >= 0.25 |
+| raw PG2-22M | Llama Prompt Guard 2 (22M), raw | LLMWarden's own `PromptGuard2Classifier().score(text)`: no fast path, normalization or decoding. Its overlapping 512-token windows (up to 8) still apply, so long inputs are not truncated | none (raw model) |
+| LLM Guard | LLM Guard 0.3.16 `PromptInjection` | `protectai/deberta-v3-base-prompt-injection-v2` @ `89b085cd` at the default `MatchType.FULL`: the whole prompt as one input, truncated at 512 tokens | block when the injection score, rounded to 2 decimals, is > 0.92 |
+| raw DeBERTa | deberta-v3-base-prompt-injection-v2, raw | the same model and revision as LLM Guard: tokenizer + softmax, truncated at 512 tokens, no scanner | none (raw model) |
+
+## Methodology
+
+Every system scores the exact same `text` per case. Recall = malicious cases
+blocked / malicious cases. FPR = benign cases blocked / benign cases (lower is
+better). Percentages are rounded to whole numbers; each row shows its n.
+
+Two views:
+
+- **Own shipped defaults**: each system's own decision at its shipped
+  threshold, i.e. what an adopter gets out of the box. Raw models ship no
+  threshold and are not in this view.
+- **LLMWarden thresholds**: every system at LLMWarden's strict/balanced/permissive
+  thresholds (0.1/0.25/0.4) applied to its score, which separates detection
+  ability from the choice of decision boundary. LLM Guard's columns are its own
+  `is_valid` verdicts from one scanner instance per threshold, since it rounds
+  and compares with `>`; every other system's column is `score >= threshold`.
+
+Sources: `LLMWarden (own tests/prose)` and `garak-derived` are the v2 cases
+(LLMWarden's own test suite and garak encoding transforms applied to its
+trigger phrases). `external` is the 200-case v3 slice from four public MIT
+datasets that LLMWarden was not tuned on, deduplicated and human-reviewed (see
+`corpus/SCHEMA.md` and `corpus/CHANGELOG.md`). LLMWarden is never tuned on it.
+
+## Own shipped defaults
+
+| Technique | Source | n (mal/ben) | LLMWarden recall | LLM Guard recall | LLMWarden FPR | LLM Guard FPR |
+|---|---|---|---|---|---|---|
+| ascii85 | garak-derived | 2/0 | 100% | 100% | n/a | n/a |
+| atbash | garak-derived | 2/0 | 100% | 0% | n/a | n/a |
+| base16_hex | garak-derived | 2/0 | 100% | 100% | n/a | n/a |
+| base32 | garak-derived | 2/0 | 100% | 0% | n/a | n/a |
+| base64_double | LLMWarden (own tests/prose) | 1/0 | 100% | 0% | n/a | n/a |
+| base64_standard | LLMWarden (own tests/prose) | 5/6 | 80% | 0% | 0% | 50% |
+| base64_triple | LLMWarden (own tests/prose) | 1/0 | 0% | 0% | n/a | n/a |
+| base64_urlsafe | LLMWarden (own tests/prose) | 1/2 | 100% | 100% | 0% | 50% |
+| benign_natural | external | 0/50 | n/a | n/a | 8% | 10% |
+| benign_trigger_words | external | 0/50 | n/a | n/a | 0% | 40% |
+| direct_injection | external | 60/0 | 52% | 100% | n/a | n/a |
+| full_width_homoglyph | LLMWarden (own tests/prose) | 1/0 | 100% | 100% | n/a | n/a |
+| high_perplexity_benign | garak-derived | 0/1 | n/a | n/a | 0% | 0% |
+| jailbreak_in_the_wild | external | 40/0 | 62% | 50% | n/a | n/a |
+| leetspeak | LLMWarden (own tests/prose) | 12/17 | 83% | 75% | 0% | 0% |
+| morse | garak-derived | 2/0 | 50% | 100% | n/a | n/a |
+| nato_phonetic | garak-derived | 2/0 | 100% | 100% | n/a | n/a |
+| plaintext_control | LLMWarden (own tests/prose) | 2/2 | 100% | 100% | 0% | 0% |
+| raw_hex | garak-derived | 2/0 | 100% | 100% | n/a | n/a |
+| rot13 | garak-derived | 2/0 | 100% | 0% | n/a | n/a |
+| truncation_padding | LLMWarden (own tests/prose) | 1/0 | 100% | 100% | n/a | n/a |
+| unicode_tag_smuggling | garak-derived | 2/0 | 100% | 0% | n/a | n/a |
+| uuencode | garak-derived | 2/0 | 100% | 100% | n/a | n/a |
+| zero_width | LLMWarden (own tests/prose) | 4/1 | 100% | 100% | 0% | 0% |
+| **Overall** | **all** | **148/129** | **67%** | **74%** | **3%** | **22%** |
+
+### Source breakdown (own shipped defaults)
+
+| Source | n (mal/ben) | LLMWarden recall | LLM Guard recall | LLMWarden FPR | LLM Guard FPR |
+|---|---|---|---|---|---|
+| LLMWarden (own tests/prose) | 28/28 | 86% | 64% | 0% | 14% |
+| external | 100/100 | 56% | 80% | 4% | 25% |
+| garak-derived | 20/1 | 95% | 60% | 0% | 0% |
+
+## LLMWarden thresholds
+
+## Profile: `strict`
+
+| Technique | Source | n (mal/ben) | LLMWarden recall | raw PG2-22M recall | LLM Guard recall | raw DeBERTa recall | LLMWarden FPR | raw PG2-22M FPR | LLM Guard FPR | raw DeBERTa FPR |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ascii85 | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| atbash | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base16_hex | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| base32 | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base64_double | LLMWarden (own tests/prose) | 1/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base64_standard | LLMWarden (own tests/prose) | 5/6 | 80% | 0% | 20% | 20% | 17% | 0% | 67% | 67% |
+| base64_triple | LLMWarden (own tests/prose) | 1/0 | 0% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base64_urlsafe | LLMWarden (own tests/prose) | 1/2 | 100% | 0% | 100% | 100% | 0% | 0% | 100% | 100% |
+| benign_natural | external | 0/50 | n/a | n/a | n/a | n/a | 10% | 10% | 10% | 10% |
+| benign_trigger_words | external | 0/50 | n/a | n/a | n/a | n/a | 2% | 2% | 44% | 44% |
+| direct_injection | external | 60/0 | 65% | 65% | 100% | 100% | n/a | n/a | n/a | n/a |
+| full_width_homoglyph | LLMWarden (own tests/prose) | 1/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| high_perplexity_benign | garak-derived | 0/1 | n/a | n/a | n/a | n/a | 0% | 0% | 0% | 0% |
+| jailbreak_in_the_wild | external | 40/0 | 75% | 75% | 57% | 57% | n/a | n/a | n/a | n/a |
+| leetspeak | LLMWarden (own tests/prose) | 12/17 | 83% | 33% | 75% | 75% | 0% | 0% | 0% | 0% |
+| morse | garak-derived | 2/0 | 50% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| nato_phonetic | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| plaintext_control | LLMWarden (own tests/prose) | 2/2 | 100% | 100% | 100% | 100% | 0% | 0% | 0% | 0% |
+| raw_hex | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| rot13 | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| truncation_padding | LLMWarden (own tests/prose) | 1/0 | 100% | 100% | 100% | 100% | n/a | n/a | n/a | n/a |
+| unicode_tag_smuggling | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| uuencode | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| zero_width | LLMWarden (own tests/prose) | 4/1 | 100% | 100% | 100% | 100% | 0% | 0% | 0% | 0% |
+| **Overall** | **all** | **148/129** | **76%** | **54%** | **77%** | **77%** | **5%** | **5%** | **26%** | **26%** |
+
+## Profile: `balanced`
+
+| Technique | Source | n (mal/ben) | LLMWarden recall | raw PG2-22M recall | LLM Guard recall | raw DeBERTa recall | LLMWarden FPR | raw PG2-22M FPR | LLM Guard FPR | raw DeBERTa FPR |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ascii85 | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| atbash | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base16_hex | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| base32 | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base64_double | LLMWarden (own tests/prose) | 1/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base64_standard | LLMWarden (own tests/prose) | 5/6 | 80% | 0% | 20% | 20% | 0% | 0% | 67% | 67% |
+| base64_triple | LLMWarden (own tests/prose) | 1/0 | 0% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base64_urlsafe | LLMWarden (own tests/prose) | 1/2 | 100% | 0% | 100% | 100% | 0% | 0% | 100% | 100% |
+| benign_natural | external | 0/50 | n/a | n/a | n/a | n/a | 8% | 8% | 10% | 10% |
+| benign_trigger_words | external | 0/50 | n/a | n/a | n/a | n/a | 0% | 0% | 44% | 44% |
+| direct_injection | external | 60/0 | 52% | 52% | 100% | 100% | n/a | n/a | n/a | n/a |
+| full_width_homoglyph | LLMWarden (own tests/prose) | 1/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| high_perplexity_benign | garak-derived | 0/1 | n/a | n/a | n/a | n/a | 0% | 0% | 0% | 0% |
+| jailbreak_in_the_wild | external | 40/0 | 62% | 62% | 57% | 57% | n/a | n/a | n/a | n/a |
+| leetspeak | LLMWarden (own tests/prose) | 12/17 | 83% | 33% | 75% | 75% | 0% | 0% | 0% | 0% |
+| morse | garak-derived | 2/0 | 50% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| nato_phonetic | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| plaintext_control | LLMWarden (own tests/prose) | 2/2 | 100% | 100% | 100% | 100% | 0% | 0% | 0% | 0% |
+| raw_hex | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| rot13 | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| truncation_padding | LLMWarden (own tests/prose) | 1/0 | 100% | 100% | 100% | 100% | n/a | n/a | n/a | n/a |
+| unicode_tag_smuggling | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| uuencode | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| zero_width | LLMWarden (own tests/prose) | 4/1 | 100% | 100% | 100% | 100% | 0% | 0% | 0% | 0% |
+| **Overall** | **all** | **148/129** | **67%** | **45%** | **77%** | **77%** | **3%** | **3%** | **26%** | **26%** |
+
+## Profile: `permissive`
+
+| Technique | Source | n (mal/ben) | LLMWarden recall | raw PG2-22M recall | LLM Guard recall | raw DeBERTa recall | LLMWarden FPR | raw PG2-22M FPR | LLM Guard FPR | raw DeBERTa FPR |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ascii85 | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| atbash | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base16_hex | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| base32 | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base64_double | LLMWarden (own tests/prose) | 1/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base64_standard | LLMWarden (own tests/prose) | 5/6 | 80% | 0% | 20% | 20% | 0% | 0% | 50% | 50% |
+| base64_triple | LLMWarden (own tests/prose) | 1/0 | 0% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| base64_urlsafe | LLMWarden (own tests/prose) | 1/2 | 100% | 0% | 100% | 100% | 0% | 0% | 50% | 50% |
+| benign_natural | external | 0/50 | n/a | n/a | n/a | n/a | 6% | 6% | 10% | 10% |
+| benign_trigger_words | external | 0/50 | n/a | n/a | n/a | n/a | 0% | 0% | 44% | 44% |
+| direct_injection | external | 60/0 | 42% | 40% | 100% | 100% | n/a | n/a | n/a | n/a |
+| full_width_homoglyph | LLMWarden (own tests/prose) | 1/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| high_perplexity_benign | garak-derived | 0/1 | n/a | n/a | n/a | n/a | 0% | 0% | 0% | 0% |
+| jailbreak_in_the_wild | external | 40/0 | 42% | 42% | 57% | 57% | n/a | n/a | n/a | n/a |
+| leetspeak | LLMWarden (own tests/prose) | 12/17 | 83% | 33% | 75% | 75% | 0% | 0% | 0% | 0% |
+| morse | garak-derived | 2/0 | 50% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| nato_phonetic | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| plaintext_control | LLMWarden (own tests/prose) | 2/2 | 100% | 100% | 100% | 100% | 0% | 0% | 0% | 0% |
+| raw_hex | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| rot13 | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| truncation_padding | LLMWarden (own tests/prose) | 1/0 | 100% | 100% | 100% | 100% | n/a | n/a | n/a | n/a |
+| unicode_tag_smuggling | garak-derived | 2/0 | 100% | 0% | 0% | 0% | n/a | n/a | n/a | n/a |
+| uuencode | garak-derived | 2/0 | 100% | 0% | 100% | 100% | n/a | n/a | n/a | n/a |
+| zero_width | LLMWarden (own tests/prose) | 4/1 | 100% | 100% | 100% | 100% | 0% | 0% | 0% | 0% |
+| **Overall** | **all** | **148/129** | **57%** | **35%** | **77%** | **77%** | **2%** | **2%** | **24%** | **24%** |
+
+## Source breakdown (all profiles collapsed to `balanced`)
+
+| Source | n (mal/ben) | LLMWarden recall | raw PG2-22M recall | LLM Guard recall | raw DeBERTa recall | LLMWarden FPR | raw PG2-22M FPR | LLM Guard FPR | raw DeBERTa FPR |
+|---|---|---|---|---|---|---|---|---|---|
+| LLMWarden (own tests/prose) | 28/28 | 86% | 39% | 68% | 68% | 0% | 0% | 21% | 21% |
+| external | 100/100 | 56% | 56% | 83% | 83% | 4% | 4% | 27% | 27% |
+| garak-derived | 20/1 | 95% | 0% | 60% | 60% | 0% | 0% | 0% | 0% |
+
+## Limitations
+
+- **Refusals count as blocked.** 1 case (`ext-itw-022`) refused by LLMWarden as too long to score safely (`InputTooLongError`, which tells the caller to reject the input). Counted as blocked, with no score.
+- **Refusals count as blocked.** 1 case (`ext-itw-022`) refused by raw PG2-22M as too long to score safely (`InputTooLongError`, which tells the caller to reject the input). Counted as blocked, with no score.
+- **Home-field bias is reduced, not removed.** 77 of 277 cases come from
+  LLMWarden's own tests or reuse its trigger phrases; read the `external` rows
+  for the least LLMWarden-shaped view. Any external source may still be in a
+  model's training data: DeBERTa's model card names only 7 of about 22
+  training datasets, and Meta does not itemize Prompt Guard 2's. No slice can
+  be proven neutral for every system.
+- **SPML labels are noisy.** SPML's injection label depends on a system prompt
+  that is not scored. At review, 22 of 57 SPML malicious rows (39%) were
+  rejected because the user text on its own was not an attack; the kept rows
+  passed that check, but the source remains the lowest-confidence one.
+- **Gandalf is selected on one phrasing.** Its rows were chosen by similarity
+  to "ignore all previous instructions", so it is capped at 25 cases and
+  stratified by similarity quartile.
+- **Part of the benign slice is multilingual.** About 13 of the 50 NotInject
+  cases are not in English, so benign FPR partly measures multilingual
+  over-blocking.
+- **Truncation is part of what is measured.** 23 of 277 cases exceed 512
+  tokens (17 of the 40 in-the-wild jailbreaks). LlamaFirewall, LLM Guard (FULL)
+  and raw DeBERTa see only the first 512 tokens; LLMWarden and raw PG2-22M
+  score overlapping windows. These are the systems' shipped behaviours.
+- **Threshold semantics differ only at the boundary.** LLM Guard rounds to 2
+  decimals and blocks on `>`; the others block on `>=`. On this corpus no score
+  falls within 0.005 of any threshold, so this changes no verdict.
+- **LlamaFirewall's preprocessing fails open.** If its whitespace-aware
+  preprocessing raises, it silently scores the unpreprocessed text.
+- **Reproduction caveat.** LLM Guard and LlamaFirewall pin `transformers`
+  4.51.3, which has published CVEs. They were run in isolated, hash-locked
+  environments, offline, with model revisions pinned and their configs
+  inspected. This affects how to rerun them safely, not their scores.
+- **Scope** is direct-input injection/jailbreak detection only; output, PII,
+  secret and tool-call scanning are not compared. Point-in-time results on a
+  small corpus, not an exhaustive red-team.
+
+<!-- historical: v1 -->
+---
+
+*Historical section: the v1 results (77 cases, two systems) exactly as published before v3. Kept verbatim and never regenerated; the scorer's test suite checks that these tables still reproduce from the v1 corpus.*
+
 # LLMWarden vs. raw Prompt Guard 2 -- evasion corpus results
 
 Corpus: `corpus/evasion_corpus_v1.jsonl`, 77 cases (48 malicious / 29 benign).

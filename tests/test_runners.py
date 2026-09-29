@@ -177,6 +177,80 @@ def test_cli_keeps_stray_library_prints_out_of_the_results_stream(
     assert sys.stdout is not sys.stderr  # restored afterwards
 
 
+# --- LLMWarden refusals (InputTooLongError) ------------------------------------
+# LLMWarden refuses inputs too long to score safely and tells the caller to
+# reject them. Decided 2026-09-29: a refusal counts as blocked, flagged per row.
+
+
+class FakeRefusal(Exception):
+    pass
+
+
+def _refusing(score: Callable[[str], float], refused_id: str) -> Callable[[str], float]:
+    refused_text = next(c["text"] for c in CASES if c["id"] == refused_id)
+
+    def inner(text: str) -> float:
+        if text == refused_text:
+            raise FakeRefusal("too long")
+        return score(text)
+
+    return inner
+
+
+def test_raw_promptguard2_refusal_counts_as_blocked_with_null_score() -> None:
+    score = _refusing(_by_text(FAKE_SCORES), "c-1")
+    rows = list(run_raw_promptguard2.score_cases(CASES, score, refusal=FakeRefusal))
+    refused, *others = rows
+    assert refused == {
+        "id": "c-1",
+        "score": None,
+        "blocked_default": None,  # still no shipped default
+        "blocked_strict": True,
+        "blocked_balanced": True,
+        "blocked_permissive": True,
+        "refused": "FakeRefusal",
+    }
+    assert all("refused" not in r and set(r) == CONTRACT for r in others)
+
+
+def test_wrapper_refusal_counts_as_blocked_including_default() -> None:
+    def scanners() -> dict[str, Callable[[str], FakeScan]]:
+        def refusing(profile: str) -> Callable[[str], FakeScan]:
+            inner = _wrapper_scanners()[profile]
+
+            def scan(text: str) -> FakeScan:
+                if text == CASES[2]["text"]:
+                    raise FakeRefusal("too long")
+                return inner(text)
+
+            return scan
+
+        return {p: refusing(p) for p in PROFILE_THRESHOLDS}
+
+    rows = list(run_wrapper.score_cases(CASES, scanners(), refusal=FakeRefusal))
+    assert rows[2] == {
+        "id": "c-3",
+        "score": None,
+        "blocked_default": True,
+        "blocked_strict": True,
+        "blocked_balanced": True,
+        "blocked_permissive": True,
+        "matched_rule": None,
+        "refused": "FakeRefusal",
+    }
+    assert all("refused" not in r for r in rows[:2])
+
+
+def test_unlisted_exceptions_still_abort_the_run() -> None:
+    # Only the declared refusal type is converted; anything else is a real
+    # failure and must not become a silent "blocked".
+    score = _refusing(_by_text(FAKE_SCORES), "c-1")
+    with pytest.raises(FakeRefusal):
+        list(run_raw_promptguard2.score_cases(CASES, score))
+    with pytest.raises(FakeRefusal):
+        list(run_raw_promptguard2.score_cases(CASES, score, refusal=KeyError))
+
+
 # --- Test 18: threshold boundary semantics ------------------------------------
 
 

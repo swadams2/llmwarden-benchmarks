@@ -4,7 +4,9 @@ windowing) at each of its 3 profiles.
 
 `blocked_default` is the `balanced` profile (LLMWarden's default). `score` is
 the classifier score at `balanced`, null when the fast-path scanner decided
-before the classifier ran; `matched_rule` names that fast-path rule.
+before the classifier ran; `matched_rule` names that fast-path rule. An input
+LLMWarden refuses as too long to score safely (InputTooLongError, which tells
+the caller to reject it) counts as blocked, with `refused` set.
 
 Run: python -m benchmarks.run_wrapper corpus/evasion_corpus_v3.jsonl > results/wrapper.jsonl
 """
@@ -21,6 +23,7 @@ from benchmarks.runner_common import (
     checked_score,
     cli,
     load_cases,
+    refused_row,
     write_rows,
 )
 
@@ -37,14 +40,20 @@ class ScanResultLike(Protocol):
 
 
 def score_cases(
-    cases: Iterable[Case], scanners: Mapping[str, Callable[[str], ScanResultLike]]
+    cases: Iterable[Case],
+    scanners: Mapping[str, Callable[[str], ScanResultLike]],
+    refusal: type[Exception] | tuple[type[Exception], ...] = (),
 ) -> Iterator[Row]:
     if set(scanners) != set(PROFILE_THRESHOLDS):
         raise ValueError(
             f"need one scanner per profile {sorted(PROFILE_THRESHOLDS)}, got {sorted(scanners)}"
         )
     for case in cases:
-        results = {profile: scan(case["text"]) for profile, scan in scanners.items()}
+        try:
+            results = {profile: scan(case["text"]) for profile, scan in scanners.items()}
+        except refusal as exc:
+            yield {**refused_row(case["id"], exc, blocked_default=True), "matched_rule": None}
+            continue
         default = results[DEFAULT_PROFILE]
         score = default.classifier_score
         yield {
@@ -58,7 +67,7 @@ def score_cases(
 
 def main(corpus_path: str, out: TextIO) -> None:
     from llmwarden import LLMWarden
-    from llmwarden.classifier import PromptGuard2Classifier
+    from llmwarden.classifier import InputTooLongError, PromptGuard2Classifier
 
     # One shared classifier instance across all 3 profiles -- avoids loading
     # the same 283MB model 3 times over.
@@ -67,7 +76,8 @@ def main(corpus_path: str, out: TextIO) -> None:
         profile: LLMWarden(profile=profile, classifier=shared_classifier).scan
         for profile in PROFILE_THRESHOLDS
     }
-    write_rows(score_cases(load_cases(corpus_path), scanners), out)
+    cases = load_cases(corpus_path)
+    write_rows(score_cases(cases, scanners, refusal=InputTooLongError), out)
 
 
 if __name__ == "__main__":

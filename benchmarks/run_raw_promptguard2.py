@@ -9,7 +9,9 @@ The same profile thresholds LLMWarden itself uses (strict=0.1,
 balanced=0.25, permissive=0.4) are applied to the raw score, so results
 isolate exactly the effect of LLMWarden's preprocessing rather than
 conflating it with a different decision boundary. A raw model ships no
-decision threshold, so `blocked_default` is null.
+decision threshold, so `blocked_default` is null. An input the classifier
+refuses as too long to score safely (InputTooLongError) counts as blocked,
+with `score` null and `refused` set.
 
 Run: python -m benchmarks.run_raw_promptguard2 corpus/evasion_corpus_v3.jsonl > results/raw_promptguard2.jsonl
 """
@@ -29,15 +31,20 @@ from benchmarks.runner_common import (
 )
 
 
-def score_cases(cases: Iterable[Case], score: Callable[[str], float]) -> Iterator[Row]:
-    return score_raw_model_cases(cases, score)
+def score_cases(
+    cases: Iterable[Case],
+    score: Callable[[str], float],
+    refusal: type[Exception] | tuple[type[Exception], ...] = (),
+) -> Iterator[Row]:
+    return score_raw_model_cases(cases, score, refusal)
 
 
 def main(corpus_path: str, out: TextIO) -> None:
-    from llmwarden.classifier import PromptGuard2Classifier
+    from llmwarden.classifier import InputTooLongError, PromptGuard2Classifier
 
     classifier = PromptGuard2Classifier()
-    write_rows(score_cases(load_cases(corpus_path), classifier.score), out)
+    cases = load_cases(corpus_path)
+    write_rows(score_cases(cases, classifier.score, refusal=InputTooLongError), out)
 
 
 if __name__ == "__main__":
