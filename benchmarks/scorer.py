@@ -1,10 +1,19 @@
-"""Joins corpus + raw-PG2 results + wrapper results, computes recall (on
-malicious cases) and false-positive rate (on benign cases) per technique,
-per source (prompt-firewall: vs garak:), and overall, for each profile.
-Renders RESULTS.md.
+"""Joins the corpus with N systems' runner results and computes recall (on
+malicious cases) and false-positive rate (on benign cases) per technique, per
+source bucket (LLMWarden's own tests/prose, garak-derived, external) and
+overall.
 
-Run: python benchmarks/scorer.py corpus/evasion_corpus_v1.jsonl \
-         results/raw_promptguard2.jsonl results/wrapper.jsonl > RESULTS.md
+Two views (spec, Phase 2 threshold policy):
+- Own shipped defaults: each system's `blocked_default`. Raw models ship no
+  default (`blocked_default` null throughout) and are left out of this view.
+- LLMWarden thresholds: every system at strict/balanced/permissive, which
+  isolates detection ability from decision-boundary choice.
+
+With two systems named `raw-PG2` and `wrapper` over the v1 corpus, the
+threshold sections are byte-identical to the v1 RESULTS.md tables (Test 23).
+
+Run: python -m benchmarks.scorer corpus/evasion_corpus_v3.jsonl \\
+         "LLMWarden=results/wrapper.jsonl" "raw PG2-22M=results/raw_promptguard2.jsonl" ...
 """
 
 from __future__ import annotations
@@ -12,13 +21,29 @@ from __future__ import annotations
 import json
 import sys
 from collections import defaultdict
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-PROFILES = ["strict", "balanced", "permissive"]
-
+from benchmarks.runner_common import PROFILE_THRESHOLDS
 
 JsonRecord = dict[str, Any]
+DECISIONS = ["default", *PROFILE_THRESHOLDS]
+
+
+class DuplicateSystemError(ValueError):
+    """Two systems share a name, so their columns would be indistinguishable."""
+
+
+class ResultsMismatchError(ValueError):
+    """A results file does not cover exactly the corpus, or holds bad values."""
+
+
+@dataclass(frozen=True)
+class System:
+    name: str
+    results: dict[str, JsonRecord]
+    has_default: bool
 
 
 def _load_jsonl(path: str) -> list[JsonRecord]:
@@ -26,157 +51,168 @@ def _load_jsonl(path: str) -> list[JsonRecord]:
         return [json.loads(line) for line in f]
 
 
-@dataclass
-class Group:
-    malicious_total: int = 0
-    malicious_caught_raw: int = 0
-    malicious_caught_wrapper: int = 0
-    benign_total: int = 0
-    benign_flagged_raw: int = 0
-    benign_flagged_wrapper: int = 0
+def _validated(name: str, rows: list[JsonRecord], corpus_ids: list[str]) -> System:
+    results: dict[str, JsonRecord] = {}
+    for row in rows:
+        if row["id"] in results:
+            raise ResultsMismatchError(f"{name}: duplicate result for {row['id']}")
+        results[row["id"]] = row
+    missing = [i for i in corpus_ids if i not in results]
+    extra = sorted(set(results) - set(corpus_ids))
+    if missing or extra:
+        # A silently dropped case would inflate recall or understate FPR.
+        raise ResultsMismatchError(
+            f"{name}: results do not match the corpus; missing {missing[:5]}, "
+            f"not in corpus {extra[:5]} ({len(missing)} missing, {len(extra)} extra)"
+        )
+    for row in results.values():
+        for key in (f"blocked_{p}" for p in PROFILE_THRESHOLDS):
+            if not isinstance(row.get(key), bool):
+                raise ResultsMismatchError(
+                    f"{name}: {row['id']} {key} is {row.get(key)!r}, not a bool"
+                )
+    defaults = {row.get("blocked_default") is None for row in results.values()}
+    if len(defaults) != 1 or not all(
+        isinstance(row["blocked_default"], bool) for row in results.values() if defaults == {False}
+    ):
+        raise ResultsMismatchError(
+            f"{name}: blocked_default must be a bool for every case or null for every case"
+        )
+    return System(name, results, has_default=defaults == {False})
 
-    def recall(self, caught: int) -> str:
-        return "n/a" if self.malicious_total == 0 else f"{caught / self.malicious_total:.0%}"
 
-    def fpr(self, flagged: int) -> str:
-        return "n/a" if self.benign_total == 0 else f"{flagged / self.benign_total:.0%}"
+def load_systems(corpus: list[JsonRecord], pairs: Sequence[tuple[str, str]]) -> list[System]:
+    names = [name for name, _ in pairs]
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    if dupes:
+        raise DuplicateSystemError(f"duplicate system names: {dupes}")
+    corpus_ids = [c["id"] for c in corpus]
+    return [_validated(name, _load_jsonl(path), corpus_ids) for name, path in pairs]
 
 
 def _source_bucket(source: str) -> str:
-    return "garak-derived" if source.startswith("garak:") else "LLMWarden (own tests/prose)"
+    if source.startswith("garak:"):
+        return "garak-derived"
+    if source.startswith("external:"):
+        return "external"
+    return "LLMWarden (own tests/prose)"
 
 
-def build_tables(
-    corpus_path: str, corpus: list[JsonRecord], raw: dict[str, JsonRecord], wrapper: dict[str, JsonRecord]
-) -> str:
-    lines: list[str] = []
-    lines.append("# LLMWarden vs. raw Prompt Guard 2 -- evasion corpus results\n")
-    lines.append(
-        f"Corpus: `{corpus_path}`, {len(corpus)} cases "
-        f"({sum(1 for c in corpus if c['label'] == 'malicious')} malicious / "
-        f"{sum(1 for c in corpus if c['label'] == 'benign')} benign).\n"
-    )
-    lines.append(
-        "**Methodology:** both systems are scored on the exact same `text` per case. "
-        "Raw Prompt Guard 2 is `PromptGuard2Classifier().score(text)` compared against "
-        "the same profile threshold LLMWarden itself uses -- this isolates the "
-        "effect of LLMWarden's preprocessing (fast-path scanner, normalization, "
-        "base64 candidate-feeding, windowing) rather than conflating it with a "
-        "different decision boundary. Recall = caught / malicious cases. "
-        "FPR = incorrectly flagged / benign cases (lower is better).\n"
-    )
+@dataclass
+class _Tally:
+    caught: list[int]  # malicious cases blocked, per system
+    flagged: list[int]  # benign cases blocked, per system
+    malicious: int = 0
+    benign: int = 0
 
-    for profile in PROFILES:
-        lines.append(f"## Profile: `{profile}`\n")
-        lines.append(
-            "| Technique | Source | n (mal/ben) | raw-PG2 recall | wrapper recall | raw-PG2 FPR | wrapper FPR |"
-        )
-        lines.append("|---|---|---|---|---|---|---|")
 
-        groups: dict[tuple[str, str], Group] = defaultdict(Group)
-        overall = Group()
+def _rate(hits: int, total: int) -> str:
+    return "n/a" if total == 0 else f"{hits / total:.0%}"
 
-        for case in corpus:
-            key = (case["technique"], _source_bucket(case["source"]))
-            g = groups[key]
-            r = raw[case["id"]]
-            w = wrapper[case["id"]]
-            raw_blocked = r[f"blocked_{profile}"]
-            wrapper_blocked = w[f"blocked_{profile}"]
 
-            if case["label"] == "malicious":
-                g.malicious_total += 1
-                overall.malicious_total += 1
-                if raw_blocked:
-                    g.malicious_caught_raw += 1
-                    overall.malicious_caught_raw += 1
-                if wrapper_blocked:
-                    g.malicious_caught_wrapper += 1
-                    overall.malicious_caught_wrapper += 1
-            else:
-                g.benign_total += 1
-                overall.benign_total += 1
-                if raw_blocked:
-                    g.benign_flagged_raw += 1
-                    overall.benign_flagged_raw += 1
-                if wrapper_blocked:
-                    g.benign_flagged_wrapper += 1
-                    overall.benign_flagged_wrapper += 1
+def _tallies(
+    corpus: list[JsonRecord], systems: list[System], decision: str, key: Callable[[JsonRecord], Any]
+) -> tuple[dict[Any, _Tally], _Tally]:
+    def fresh() -> _Tally:
+        return _Tally(caught=[0] * len(systems), flagged=[0] * len(systems))
 
-        for (technique, source), g in sorted(groups.items()):
-            n = f"{g.malicious_total}/{g.benign_total}"
-            lines.append(
-                f"| {technique} | {source} | {n} "
-                f"| {g.recall(g.malicious_caught_raw)} | {g.recall(g.malicious_caught_wrapper)} "
-                f"| {g.fpr(g.benign_flagged_raw)} | {g.fpr(g.benign_flagged_wrapper)} |"
-            )
-
-        lines.append(
-            f"| **Overall** | **all** | **{overall.malicious_total}/{overall.benign_total}** "
-            f"| **{overall.recall(overall.malicious_caught_raw)}** "
-            f"| **{overall.recall(overall.malicious_caught_wrapper)}** "
-            f"| **{overall.fpr(overall.benign_flagged_raw)}** "
-            f"| **{overall.fpr(overall.benign_flagged_wrapper)}** |\n"
-        )
-
-    lines.append("## Source breakdown (all profiles collapsed to `balanced`)\n")
-    lines.append("| Source | n (mal/ben) | raw-PG2 recall | wrapper recall | raw-PG2 FPR | wrapper FPR |")
-    lines.append("|---|---|---|---|---|---|")
-    by_source: dict[str, Group] = defaultdict(Group)
+    groups: dict[Any, _Tally] = defaultdict(fresh)
+    overall = fresh()
     for case in corpus:
-        g = by_source[_source_bucket(case["source"])]
-        r = raw[case["id"]]
-        w = wrapper[case["id"]]
-        if case["label"] == "malicious":
-            g.malicious_total += 1
-            g.malicious_caught_raw += r["blocked_balanced"]
-            g.malicious_caught_wrapper += w["blocked_balanced"]
-        else:
-            g.benign_total += 1
-            g.benign_flagged_raw += r["blocked_balanced"]
-            g.benign_flagged_wrapper += w["blocked_balanced"]
-    for source, g in sorted(by_source.items()):
-        n = f"{g.malicious_total}/{g.benign_total}"
-        lines.append(
-            f"| {source} | {n} | {g.recall(g.malicious_caught_raw)} "
-            f"| {g.recall(g.malicious_caught_wrapper)} | {g.fpr(g.benign_flagged_raw)} "
-            f"| {g.fpr(g.benign_flagged_wrapper)} |"
-        )
+        for t in (groups[key(case)], overall):
+            malicious = case["label"] == "malicious"
+            if malicious:
+                t.malicious += 1
+            else:
+                t.benign += 1
+            hits = t.caught if malicious else t.flagged
+            for i, system in enumerate(systems):
+                hits[i] += system.results[case["id"]][f"blocked_{decision}"]
+    return groups, overall
 
-    lines.append("\n## Limitations\n")
-    lines.append(
-        "- Small corpus (77 cases) -- point-in-time evidence for the specific techniques "
-        "already identified in LLMWarden's own test suite plus 10 garak-derived "
-        "encoding transforms, not an exhaustive red-team.\n"
-        "- Both systems share the same profile thresholds by design (see Methodology) -- "
-        "this correctly isolates the preprocessing effect since both use the identical "
-        "underlying classifier score for non-fast-path cases, but it means neither "
-        "threshold was independently tuned for raw Prompt Guard 2's own score "
-        "distribution in isolation.\n"
-        "- Scope is limited to the direct-input injection/jailbreak detection surface -- "
-        "LLMWarden's PII scanning, secret scanning, and tool-call validation have "
-        "no raw-Prompt-Guard-2 equivalent and are not compared here.\n"
-        "- garak-derived cases apply each transform to only 2 trigger phrases -- breadth "
-        "of technique coverage, not breadth of payload variation per technique.\n"
+
+def _cells(t: _Tally) -> list[str]:
+    return [_rate(c, t.malicious) for c in t.caught] + [_rate(f, t.benign) for f in t.flagged]
+
+
+def _header(first: list[str], systems: list[System]) -> list[str]:
+    cols = [*first, *(f"{s.name} recall" for s in systems), *(f"{s.name} FPR" for s in systems)]
+    return ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
+
+
+def technique_table(corpus: list[JsonRecord], systems: list[System], decision: str) -> list[str]:
+    groups, overall = _tallies(
+        corpus, systems, decision, lambda c: (c["technique"], _source_bucket(c["source"]))
     )
+    lines = _header(["Technique", "Source", "n (mal/ben)"], systems)
+    for (technique, source), t in sorted(groups.items()):
+        cells = [technique, source, f"{t.malicious}/{t.benign}", *_cells(t)]
+        lines.append("| " + " | ".join(cells) + " |")
+    bold = [
+        f"**{c}**"
+        for c in ["Overall", "all", f"{overall.malicious}/{overall.benign}", *_cells(overall)]
+    ]
+    lines.append("| " + " | ".join(bold) + " |\n")
+    return lines
 
+
+def source_table(corpus: list[JsonRecord], systems: list[System], decision: str) -> list[str]:
+    groups, _ = _tallies(corpus, systems, decision, lambda c: _source_bucket(c["source"]))
+    lines = _header(["Source", "n (mal/ben)"], systems)
+    for source, t in sorted(groups.items()):
+        lines.append("| " + " | ".join([source, f"{t.malicious}/{t.benign}", *_cells(t)]) + " |")
+    return lines
+
+
+def render_threshold_sections(corpus: list[JsonRecord], systems: list[System]) -> str:
+    """Every system at LLMWarden's three profiles, then a source breakdown at
+    `balanced`. Byte-identical to the v1 tables for v1's two systems."""
+    lines: list[str] = []
+    for profile in PROFILE_THRESHOLDS:
+        lines.append(f"## Profile: `{profile}`\n")
+        lines += technique_table(corpus, systems, profile)
+    lines.append("## Source breakdown (all profiles collapsed to `balanced`)\n")
+    lines += source_table(corpus, systems, "balanced")
     return "\n".join(lines) + "\n"
 
 
-def main(corpus_path: str, raw_path: str, wrapper_path: str) -> None:
+def render_tables(corpus: list[JsonRecord], systems: list[System]) -> str:
+    lines: list[str] = []
+    shipped = [s for s in systems if s.has_default]
+    if shipped:
+        lines.append("## Own shipped defaults\n")
+        lines += technique_table(corpus, shipped, "default")
+        lines.append("### Source breakdown (own shipped defaults)\n")
+        lines += source_table(corpus, shipped, "default")
+        lines.append("")
+    lines.append("## LLMWarden thresholds\n")
+    return "\n".join(lines) + "\n" + render_threshold_sections(corpus, systems)
+
+
+def _parse_pair(arg: str) -> tuple[str, str]:
+    name, sep, path = arg.partition("=")
+    if not sep or not name or not path:
+        raise SystemExit(f"expected NAME=RESULTS.jsonl, got {arg!r}")
+    return name, path
+
+
+def main(corpus_path: str, pair_args: Sequence[str]) -> None:
     sys.stdout.reconfigure(encoding="utf-8")  # pyright: ignore[reportAttributeAccessIssue]
     corpus = _load_jsonl(corpus_path)
-    raw = {r["id"]: r for r in _load_jsonl(raw_path)}
-    wrapper = {r["id"]: r for r in _load_jsonl(wrapper_path)}
-    missing = [c["id"] for c in corpus if c["id"] not in raw or c["id"] not in wrapper]
-    if missing:
-        print(f"ERROR: {len(missing)} corpus ids missing from results: {missing[:5]}...", file=sys.stderr)
-        raise SystemExit(1)
-    sys.stdout.write(build_tables(corpus_path, corpus, raw, wrapper))
+    systems = load_systems(corpus, [_parse_pair(a) for a in pair_args])
+    n_mal = sum(c["label"] == "malicious" for c in corpus)
+    sys.stdout.write(
+        f"Corpus: `{corpus_path}`, {len(corpus)} cases "
+        f"({n_mal} malicious / {len(corpus) - n_mal} benign).\n\n"
+    )
+    sys.stdout.write(render_tables(corpus, systems))
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("usage: scorer.py <corpus.jsonl> <raw_results.jsonl> <wrapper_results.jsonl>", file=sys.stderr)
+    if len(sys.argv) < 3:
+        print(
+            "usage: python -m benchmarks.scorer <corpus.jsonl> NAME=RESULTS.jsonl ...",
+            file=sys.stderr,
+        )
         raise SystemExit(2)
-    main(sys.argv[1], sys.argv[2], sys.argv[3])
+    main(sys.argv[1], sys.argv[2:])
