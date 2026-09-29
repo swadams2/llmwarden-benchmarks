@@ -29,3 +29,25 @@ This project also depends on (not bundles) `llmwarden`
 same author) and, via LLMWarden's `classifier` extra, on
 meta-llama/Llama-Prompt-Guard-2-22M (Llama 4 Community License) — see that
 project's own NOTICE for the full third-party attribution chain.
+
+External corpus slice (corpus/evasion_corpus_v3.jsonl, rows with
+`source: "external:..."`)
+-----------------------------------------------------------------------
+
+200 rows are redistributed from the following Hugging Face datasets, each
+declared MIT-licensed on its dataset card and used at the exact revision
+shown. Copyright in each dataset remains with its respective authors (see
+each dataset card). The MIT license text is at LICENSES/MIT.txt.
+
+- Lakera/gandalf_ignore_instructions @ 04737b65e90a6794ec227012e4a255a7def6344b
+  https://huggingface.co/datasets/Lakera/gandalf_ignore_instructions
+- TrustAIRLab/in-the-wild-jailbreak-prompts @ a10aab8eff1c73165a442d4464dce192bd28b9c5
+  https://huggingface.co/datasets/TrustAIRLab/in-the-wild-jailbreak-prompts
+- reshabhs/SPML_Chatbot_Prompt_Injection @ 02ce8084e979bc7d4c24ee35d22ecb7f2db96ff5
+  https://huggingface.co/datasets/reshabhs/SPML_Chatbot_Prompt_Injection
+- leolee99/NotInject @ 847ae76cf8fea5ed325429e569ae8cfef022d2e0
+  https://huggingface.co/datasets/leolee99/NotInject
+
+Used at build time only, not redistributed: jackhhao/jailbreak-classification
+(Apache-2.0) and deepset/prompt-injections (Apache-2.0), read solely to exclude
+their rows from sampling.

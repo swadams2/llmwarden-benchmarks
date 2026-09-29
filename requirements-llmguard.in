@@ -1,0 +1,5 @@
+# .venv-llmguard: LLM Guard + raw DeBERTa (same env so the pair differs only by the wrapper).
+# llm-guard 0.3.16 is archived (frozen) and requires Python <3.13; it hard-pins transformers==4.51.3.
+# torch pinned to match the main .venv (PyPI build) for cross-system parity.
+llm-guard==0.3.16
+torch==2.13.0

@@ -1,0 +1,2 @@
+# Installed with --no-deps; see requirements-llamafirewall.in for why.
+llamafirewall==1.0.3     --hash=sha256:7bc110f4322c5eefb112fcde83b21da67176de4fa9036c184b14bf04f1ea4b30

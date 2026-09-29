@@ -1,0 +1,2 @@
+# Corpus builder only; see pyproject [build-corpus].
+pyarrow==25.0.1

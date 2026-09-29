@@ -57,3 +57,29 @@ untouched so existing and historical results stay reproducible. `RESULTS.md` sti
 Introduced in `a965b6c` (see the comment in `benchmarks/generate_garak_cases.py`). This entry was
 added 2026-09-26. Before that, v2 had no changelog entry. The generator now reproduces v2 byte for
 byte and can no longer reproduce v1. See the README's "Reproduce the results".
+
+## v3 (2026-09-29)
+
+Adds an external slice so the corpus no longer mostly consists of LLMWarden's own cases. 277
+cases: the 77 v2 cases (byte-identical, same order) plus 200 external cases (100 malicious /
+100 benign). v1 and v2 are untouched.
+
+- **Sources** (all MIT, not gated, pinned to exact revisions in
+  `benchmarks/external_sources.py`): `TrustAIRLab/in-the-wild-jailbreak-prompts` (40 jailbreaks
+  from `jailbreak_2023_12_25`, 30 benign from `regular_2023_12_25`),
+  `reshabhs/SPML_Chatbot_Prompt_Injection` (35 malicious, 20 benign; user prompt only),
+  `Lakera/gandalf_ignore_instructions` (25 malicious, capped and stratified by similarity
+  quartile), `leolee99/NotInject` (50 benign hard negatives, even across its 3 splits).
+- **Excluded from sampling:** any row duplicating (exact or near, word 3-shingle Jaccard ≥ 0.5)
+  a v2 case or a row of `jackhhao/jailbreak-classification` or `deepset/prompt-injections`, the
+  datasets LLMWarden's thresholds were tuned/scored on. 106 in-the-wild rows were excluded as
+  jackhhao duplicates.
+- **Human review:** 8 rounds, 42 rejections (28 label, 14 content) in
+  `corpus/v3_review_rejections.json`. SPML's injection labels are relative to each row's system
+  prompt, which is not scored; 22 of 57 SPML malicious rows reviewed (39%) were rejected because
+  their user prompt is not an attack on its own. Content rejections remove sexually explicit,
+  sexual-violence, coercion and hateful-targeting prompts from this public corpus.
+- **Known properties:** ~13 of the 50 NotInject rows are non-English, so the benign slice partly
+  measures multilingual false positives. Model training sets are not fully published (DeBERTa's
+  card names 7 of ~22 sets; Prompt Guard 2's are unlisted), so the slice reduces LLMWarden's
+  home-field bias but cannot be proven neutral for every scored system.

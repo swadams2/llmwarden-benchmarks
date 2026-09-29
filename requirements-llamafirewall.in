@@ -1,0 +1,10 @@
+# .venv-llamafirewall: runtime deps of llamafirewall's PromptGuard path ONLY.
+# llamafirewall itself is installed separately with --no-deps (see requirements-llamafirewall-pkg.txt):
+# its declared codeshield (-> semgrep), openai and typer deps are imported lazily by other scanners
+# only, never on the PromptGuardScanner path (verified from the 1.0.3 wheel source, 2026-09-29).
+# huggingface-hub must stay <1.0: promptguard_utils imports HfFolder, removed in hub 1.0.0.
+# transformers pinned to 4.51.3 to match .venv-llmguard; torch to match the main .venv.
+transformers==4.51.3
+torch==2.13.0
+huggingface-hub<1.0
+typing-extensions
