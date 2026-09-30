@@ -92,6 +92,20 @@ def test_identical_refusals_across_systems_are_one_bullet() -> None:
     assert "1 case (`a`) refused by LLMWarden and raw PG2-22M" in doc
 
 
+def test_identical_refusals_merge_regardless_of_file_order() -> None:
+    # Same refused cases listed in a different order are still one group.
+    refused = {"refused": "InputTooLongError"}
+    forward = {"a": _row("a", True, True, **refused), "b": _row("b", True, True, **refused)}
+    backward = {"b": forward["b"], "a": forward["a"]}
+    systems = [
+        System("LLMWarden", forward, has_default=True),
+        System("raw PG2-22M", backward, has_default=True),
+    ]
+    doc = render_document("c.jsonl", CORPUS, systems)
+    assert doc.count("**Refusals count as blocked.**") == 1
+    assert "2 cases (`a`, `b`) refused by LLMWarden and raw PG2-22M" in doc
+
+
 def test_refusal_reason_comes_from_the_data() -> None:
     # The exception name is read from row["refused"], not assumed; the
     # "too long" explanation only accompanies InputTooLongError.
@@ -144,6 +158,9 @@ def test_llmwarden_time_bound_is_disclosed_only_when_scored() -> None:
     assert "180 ms" in with_lw.split("## Limitations", 1)[1]
     without = render_document("c.jsonl", CORPUS, [_system("raw DeBERTa", None)])
     assert "180 ms" not in without
+    # The prose states methods, never observed results (module rule), so a
+    # re-score can't leave a stale claim behind.
+    assert "gave identical" not in " ".join(with_lw.split())
 
 
 def test_committed_v3_corpus_matches_the_pinned_hash() -> None:

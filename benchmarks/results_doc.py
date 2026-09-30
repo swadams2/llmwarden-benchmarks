@@ -194,7 +194,8 @@ def _names(names: Sequence[str]) -> str:
 
 def _refusal_lines(systems: Sequence[System]) -> list[str]:
     """One bullet per distinct (cases, reasons) pair, naming every system that
-    refused exactly those cases. Reasons are read from each row's `refused`."""
+    refused exactly those cases. Reasons are read from each row's `refused`;
+    case ids are listed in sorted order."""
     groups: dict[tuple[tuple[str, ...], tuple[str, ...]], list[str]] = {}
     for system in systems:
         refused: dict[str, str] = {}
@@ -205,7 +206,8 @@ def _refusal_lines(systems: Sequence[System]) -> list[str]:
                 case _:
                     pass
         if refused:
-            key = (tuple(refused), tuple(sorted(set(refused.values()))))
+            # Sorted, so the grouping never depends on a results file's row order.
+            key = (tuple(sorted(refused)), tuple(sorted(set(refused.values()))))
             groups.setdefault(key, []).append(system.name)
     lines: list[str] = []
     for (cases, reasons), names in groups.items():
@@ -274,8 +276,7 @@ def _time_bound_line() -> str:
         "**LLMWarden's decoded-candidate scoring is time-bounded.** `scan()` stops "
         + f"scoring decoded encoding candidates after {LLMWARDEN_CANDIDATE_BUDGET_MS} ms "
         + "of wall-clock time, so a much slower machine could reach a different verdict. "
-        + "The runner loads the model before scoring, so loading time is never counted; "
-        + "a cold run and two warm-up runs of v3 gave identical per-case results."
+        + "The runner loads the model before scoring, so loading time is never counted."
     )
 
 

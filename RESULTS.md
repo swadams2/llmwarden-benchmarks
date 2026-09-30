@@ -202,8 +202,7 @@ datasets that LLMWarden was not tuned on, deduplicated and human-reviewed (see
 - **LLMWarden's decoded-candidate scoring is time-bounded.** `scan()` stops
   scoring decoded encoding candidates after 180 ms of wall-clock time, so a much
   slower machine could reach a different verdict. The runner loads the model
-  before scoring, so loading time is never counted; a cold run and two warm-up
-  runs of v3 gave identical per-case results.
+  before scoring, so loading time is never counted.
 - **LlamaFirewall is not yet scored.** It is waiting on gated access to Prompt
   Guard 2 (86M) and is absent from every table above. When it is scored, note
   that its whitespace-aware preprocessing fails open: if that raises, the
