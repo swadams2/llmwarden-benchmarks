@@ -7,7 +7,7 @@ license = { file = "LICENSE" }
 dependencies = [
     # Pinned to a commit SHA, not a tag, per LLMWarden's own README guidance on
     # pinning anything security-sensitive -- this is exactly that context.
-    "llmwarden[classifier] @ git+https://github.com/swadams2/llmwarden.git@41c4ab817c1a7e1c96717a9ed47e8b80d0b9115a",  # v0.7.0
+    "llmwarden[classifier] @ git+https://github.com/swadams2/llmwarden.git@62f2a8ae6100c6d2d9fd90c1cb5f7376e44ea8ee",  # v0.8.0
 ]
 
 [project.optional-dependencies]

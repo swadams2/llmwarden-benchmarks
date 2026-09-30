@@ -1,10 +1,11 @@
-"""Assembles RESULTS.md: the generated v3 document (systems, methodology,
-tables, limitations) followed by the frozen v1 section, carried over
-byte-for-byte from `HISTORICAL_MARKER` onward.
+"""Assembles RESULTS.md: the generated v3 document (a dated correction note,
+systems, methodology, tables, limitations) followed by the frozen v1 section,
+carried over byte-for-byte from `HISTORICAL_MARKER` onward.
 
 The prose states methods and limitations, never findings: numbers live only
 in the generated tables, so a re-score can't leave a stale claim behind. The
-few corpus counts the prose does state (277 cases, 23 over 512 tokens, ...)
+one exception is the hand-written `CORRECTION_NOTE`, which states versions and
+thresholds but no result numbers. The few corpus counts the prose does state (277 cases, 23 over 512 tokens, ...)
 are v3's, so `main` refuses any corpus but frozen v3.
 
 Run (reads RESULTS.md's historical section first, then replaces the file):
@@ -19,11 +20,11 @@ import os
 import sys
 import tempfile
 import textwrap
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from benchmarks.run_llm_guard import THRESHOLDS as LLM_GUARD_THRESHOLDS
-from benchmarks.runner_common import load_cases
+from benchmarks.runner_common import PROFILE_THRESHOLDS, load_cases
 from benchmarks.scorer import (
     JsonRecord,
     System,
@@ -50,7 +51,7 @@ LLMWARDEN_CANDIDATE_BUDGET_MS = 180
 # third-party systems follows the spec (Phase 2, "System descriptions").
 SYSTEM_DESCRIPTIONS: dict[str, tuple[str, str, str]] = {
     "LLMWarden": (
-        "LLMWarden v0.7.0 (`41c4ab8`)",
+        "LLMWarden v0.8.0 (`62f2a8a`)",
         (
             "full `scan()` pipeline: fast-path signature scanner, Unicode normalization, "
             "encoding candidate-feeding and overlapping-window classification over "
@@ -102,7 +103,7 @@ TRUNCATING = {
 }
 WINDOWING = ("LLMWarden", "raw PG2-22M")
 
-METHODOLOGY = """\
+METHODOLOGY_TEMPLATE = """\
 ## Methodology
 
 Every system scores the exact same `text` per case. Recall = malicious cases
@@ -115,7 +116,7 @@ Two views:
   threshold, i.e. what an adopter gets out of the box. Raw models ship no
   threshold and are not in this view.
 - **LLMWarden thresholds**: every system at LLMWarden's strict/balanced/permissive
-  thresholds (0.1/0.25/0.4) applied to its score, which separates detection
+  thresholds ({thresholds}) applied to its score, which separates detection
   ability from the choice of decision boundary. LLM Guard's columns are its own
   `is_valid` verdicts from one scanner instance per threshold, since it rounds
   and compares with `>`; every other system's column is `score >= threshold`.
@@ -125,6 +126,24 @@ Sources: `LLMWarden (own tests/prose)` and `garak-derived` are the v2 cases
 trigger phrases). `external` is the 200-case v3 slice from four public MIT
 datasets that LLMWarden was not tuned on, deduplicated and human-reviewed (see
 `corpus/SCHEMA.md` and `corpus/CHANGELOG.md`). LLMWarden is never tuned on it.
+"""
+
+# Dated, hand-written correction for the 2026-09-29 publication (8606ebc). It
+# names versions and thresholds but no result numbers (those live only in the
+# generated tables). Its "re-scored on v0.8.0" describes the current tables:
+# revise or remove this note at the next re-score.
+CORRECTION_NOTE = """\
+> **Correction (2026-09-30).** The v3 tables first published on 2026-09-29
+> ([`8606ebc`](https://github.com/swadams2/llmwarden-benchmarks/blob/8606ebc/RESULTS.md))
+> scored LLMWarden v0.7.0. Under its pinned `transformers` 5.14.1, v0.7.0 built
+> Prompt Guard 2's tokenizer with a different text normalizer than the model's
+> own `tokenizer.json`, so some inputs reached the model as different tokens
+> than that file produces. LLMWarden v0.8.0 fixes this and re-tunes
+> `permissive` from 0.4 to 0.7. The LLMWarden and raw PG2-22M results below are
+> re-scored on v0.8.0, and every system's `permissive` column now uses 0.7.
+> LLM Guard and raw DeBERTa scores are unchanged; only their `permissive`
+> verdicts move, with the new threshold. The frozen v1 section at the end was
+> scored before the fix and is kept as published.
 """
 
 LIMITATIONS_HEAD = """\
@@ -163,6 +182,10 @@ LIMITATIONS_TAIL = """\
 - **Scope** is direct-input injection/jailbreak detection only; output, PII,
   secret and tool-call scanning are not compared. Point-in-time results on a
   small corpus, not an exhaustive red-team."""
+
+
+def methodology(thresholds: Mapping[str, float]) -> str:
+    return METHODOLOGY_TEMPLATE.format(thresholds="/".join(f"{t:g}" for t in thresholds.values()))
 
 
 class UndocumentedSystemError(ValueError):
@@ -299,12 +322,13 @@ def render_document(corpus_path: str, corpus: list[JsonRecord], systems: Sequenc
     parts = [
         "# Prompt-injection detectors on the LLMWarden evasion corpus\n",
         corpus_summary(corpus_path, corpus) + "\n",
+        CORRECTION_NOTE,
         "## Systems\n",
         "| System | What it is | What is scored | Own shipped decision |",
         "|---|---|---|---|",
         *(f"| {s.name} | {' | '.join(SYSTEM_DESCRIPTIONS[s.name])} |" for s in systems),
         "",
-        METHODOLOGY,
+        methodology(PROFILE_THRESHOLDS),
         render_tables(corpus, list(systems)),
         "## Limitations\n",
         _limitations(systems),

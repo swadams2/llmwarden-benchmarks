@@ -1,16 +1,19 @@
 """RESULTS.md assembly: system descriptions, computed disclosures, and the
-frozen v1 historical section carried over byte-for-byte."""
+frozen v1 historical section carried over byte-for-byte. R-numbered tests refer
+to temp/dev-tests-llmwarden-benchmarks-rescore-v080-20260929.md in the HAL repo."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from benchmarks.results_doc import (
+    CORRECTION_NOTE,
     HISTORICAL_MARKER,
     SYSTEM_DESCRIPTIONS,
     V3_CORPUS_SHA256,
@@ -19,11 +22,15 @@ from benchmarks.results_doc import (
     UnexpectedCorpusError,
     historical_section,
     main,
+    methodology,
     render_document,
     update_results_file,
 )
-from benchmarks.scorer import System
+from benchmarks.runner_common import PROFILE_THRESHOLDS
+from benchmarks.scorer import System, corpus_summary
 
+REPO = Path(__file__).resolve().parent.parent
+ALL_SYSTEMS = ["LLMWarden", "raw PG2-22M", "LLM Guard", "raw DeBERTa"]
 CORPUS = [
     {"id": "a", "text": "x", "label": "malicious", "source": "garak:enc/b64", "technique": "b64"},
     {
@@ -218,3 +225,49 @@ def test_document_is_valid_utf8_markdown_ending_in_one_newline() -> None:
     doc = render_document("c.jsonl", CORPUS, [_system("LLMWarden", True)])
     assert doc.endswith("\n") and not doc.endswith("\n\n")
     json.dumps(doc)  # plain str, no stray bytes
+
+
+def test_r3_llmwarden_label_names_the_pinned_commit_and_version() -> None:
+    pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+    pin = re.search(r'llmwarden\.git@([0-9a-f]{40})",\s*# (v\d+\.\d+\.\d+)', pyproject)
+    assert pin, "pyproject.toml: llmwarden pin line (SHA + '# vX.Y.Z') not found"
+    sha, version = pin.groups()
+    label = SYSTEM_DESCRIPTIONS["LLMWarden"][0]
+    assert version in label
+    assert f"`{sha[:7]}`" in label
+
+
+def test_r4_methodology_states_the_thresholds_it_is_given() -> None:
+    assert "(0.11/0.22/0.33)" in methodology({"strict": 0.11, "balanced": 0.22, "permissive": 0.33})
+    current = "/".join(f"{t:g}" for t in PROFILE_THRESHOLDS.values())
+    doc = render_document("c.jsonl", CORPUS, [_system("LLMWarden", True)])
+    assert f"({current})" in doc
+
+
+def test_r6_correction_note_follows_the_summary_and_precedes_systems() -> None:
+    doc = render_document("c.jsonl", CORPUS, [_system("LLMWarden", True)])
+    summary = corpus_summary("c.jsonl", CORPUS)
+    assert doc.index(summary) < doc.index(CORRECTION_NOTE) < doc.index("## Systems")
+    assert (
+        "https://github.com/swadams2/llmwarden-benchmarks/blob/8606ebc/RESULTS.md"
+        in CORRECTION_NOTE
+    )
+    for fact in ("tokenizer", "`permissive`", "0.4", "0.7", "v1"):
+        assert fact in CORRECTION_NOTE
+    assert "%" not in CORRECTION_NOTE  # numbers live only in the generated tables
+
+
+def test_r7_generated_document_links_only_to_public_repos() -> None:
+    # Greedy, no `.` in the name, case-insensitive: whatever follows the name
+    # (`.git@sha`, `>`, `#`, a backtick) can't hide a link from the check.
+    pattern = r"(?i)github\.com/swadams2/([\w-]+)"
+    private_forms = (
+        "see https://github.com/swadams2/llmwarden/releases",
+        "git+https://github.com/swadams2/llmwarden.git@62f2a8a",
+        "<https://github.com/swadams2/llmwarden>",
+        "`github.com/SWADAMS2/llmwarden#readme`",
+    )
+    for form in private_forms:
+        assert re.findall(pattern, form) == ["llmwarden"]
+    doc = render_document("c.jsonl", CORPUS, [_system(n, None) for n in ALL_SYSTEMS])
+    assert set(re.findall(pattern, doc)) <= {"llmwarden-benchmarks"}

@@ -1,13 +1,12 @@
 """N-system scorer: v1 regression, five-system shape, and input validation.
 Test numbers refer to temp/dev-tests-llmwarden-benchmarks-phase2-20260929.md in
-the HAL repo.
+the HAL repo; R-numbered notes to temp/dev-tests-llmwarden-benchmarks-rescore-v080-20260929.md
+(R5 replaces Test 23's live re-run).
 """
 
 from __future__ import annotations
 
 import json
-import subprocess  # nosec B404 -- Test 23 runs this repo's own runners
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +25,7 @@ from benchmarks.scorer import (
 
 REPO = Path(__file__).resolve().parent.parent
 V1_PATH = REPO / "corpus" / "evasion_corpus_v1.jsonl"
+V1_RESULTS = REPO / "tests" / "fixtures" / "v1_llmwarden_v0.7.0"
 
 
 def _case(i: int, label: str, source: str, technique: str) -> dict[str, Any]:
@@ -219,24 +219,15 @@ def _published_v1_tables() -> str:
     return text[start:end]
 
 
-@pytest.mark.integration
-def test_23_two_systems_reproduce_published_v1_tables(tmp_path: Path) -> None:
-    pytest.importorskip("llmwarden", reason="Test 23 re-runs the v1 runners: needs llmwarden")
-    pairs = []
-    for name, module in (("raw-PG2", "run_raw_promptguard2"), ("wrapper", "run_wrapper")):
-        proc = subprocess.run(  # nosec B603 -- fixed argv, no shell, this repo's own module
-            [sys.executable, "-m", f"benchmarks.{module}", str(V1_PATH)],
-            cwd=REPO,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=900,
-            check=False,
-        )
-        assert proc.returncode == 0, proc.stderr[-4000:]
-        path = tmp_path / f"{module}.jsonl"
-        path.write_text(proc.stdout, encoding="utf-8")
-        pairs.append((name, str(path)))
+def test_23_recorded_v1_results_reproduce_published_v1_tables() -> None:
+    # R5: scores the per-case v1 results recorded 2026-09-14 against prompt-firewall
+    # v0.6.6 (byte-identical to an LLMWarden v0.7.0 run, verified 2026-09-26), not a
+    # live re-run: the scorer reads only each row's stored blocked_* flags, so the
+    # frozen tables must reproduce under any llmwarden pin.
+    pairs = [
+        ("raw-PG2", str(V1_RESULTS / "raw_promptguard2.jsonl")),
+        ("wrapper", str(V1_RESULTS / "wrapper.jsonl")),
+    ]
     corpus = [json.loads(line) for line in V1_PATH.read_text(encoding="utf-8").splitlines()]
     rendered = render_threshold_sections(corpus, load_systems(corpus, pairs))
     assert rendered == _published_v1_tables()

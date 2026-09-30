@@ -175,7 +175,7 @@ those surfaces are not in this corpus.
 
 Every system scores the identical `text` per case, in two views:
 - **own shipped default:** each system's decision at the threshold it ships with. Raw models ship none.
-- **LLMWarden thresholds:** strict 0.1 / balanced 0.25 / permissive 0.4 applied to every system's
+- **LLMWarden thresholds:** strict 0.1 / balanced 0.25 / permissive 0.7 applied to every system's
   score, to separate detection ability from the choice of decision boundary.
 
 `RESULTS.md` has the full methodology, the exact description of each system, and a Limitations

@@ -4,7 +4,7 @@ truncated at 512 tokens) over `protectai/deberta-v3-base-prompt-injection-v2`.
 
 Decisions come only from the public `scan() -> (sanitized, is_valid,
 risk_score)` API, one scanner instance per threshold: the shipped default
-0.92 plus LLMWarden's 0.1/0.25/0.4. `risk_score` is never used: it is
+0.92 plus LLMWarden's 0.1/0.25/0.7. `risk_score` is never used: it is
 rescaled against the threshold and rounded to 1 decimal, so it can't be read
 back as a probability. LLM Guard also rounds each injection score to 2
 decimals and blocks on strict `>`, which is why its columns are its own

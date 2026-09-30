@@ -6,7 +6,7 @@ context/projects/llmwarden-benchmarks/llmwarden-benchmarks-spec.md
 for why this is a fair, minimal "raw model" baseline.
 
 The same profile thresholds LLMWarden itself uses (strict=0.1,
-balanced=0.25, permissive=0.4) are applied to the raw score, so results
+balanced=0.25, permissive=0.7) are applied to the raw score, so results
 isolate exactly the effect of LLMWarden's preprocessing rather than
 conflating it with a different decision boundary. A raw model ships no
 decision threshold, so `blocked_default` is null. An input the classifier

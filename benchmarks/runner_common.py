@@ -21,9 +21,10 @@ from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import Any, TextIO
 
-# Mirrors llmwarden.core._PROFILE_THRESHOLDS exactly (module-private, not
-# exported -- hardcoded here rather than reached into).
-PROFILE_THRESHOLDS = {"strict": 0.1, "balanced": 0.25, "permissive": 0.4}
+# Mirrors llmwarden.core._PROFILE_THRESHOLDS (module-private, not exported --
+# hardcoded here rather than reached into); tests/test_runners.py's
+# test_r1_profile_thresholds_mirror_llmwarden fails if they drift.
+PROFILE_THRESHOLDS = {"strict": 0.1, "balanced": 0.25, "permissive": 0.7}
 
 Case = dict[str, Any]
 Row = dict[str, Any]

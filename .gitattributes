@@ -5,3 +5,7 @@
 # clones, defeating "versioned, immutable" corpus files. Same lesson as
 # prompt-firewall's own en_core_web_md CRLF fix (2026-09-08).
 corpus/*.jsonl -text
+
+# Test fixtures (e.g. the recorded v1 per-case results Test 23 scores) are
+# frozen inputs too.
+tests/fixtures/**/*.jsonl -text

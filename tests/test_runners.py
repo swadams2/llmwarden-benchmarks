@@ -1,7 +1,7 @@
 """Per-system runners: output contract, threshold semantics, LLM Guard's
 `is_valid`-only decisions, PG2-86M weight integrity and token hygiene. Test
 numbers refer to temp/dev-tests-llmwarden-benchmarks-phase2-20260929.md in the
-HAL repo.
+HAL repo; R-numbered tests to temp/dev-tests-llmwarden-benchmarks-rescore-v080-20260929.md.
 
 Unit tests inject fake scorers: no model, network or HF token. The two
 integration tests run the real runners in their own venvs (subprocess, so the
@@ -287,7 +287,7 @@ def test_18_llm_guard_default_is_092_and_runner_never_applies_its_own_comparison
         "default": 0.92,
         "strict": 0.1,
         "balanced": 0.25,
-        "permissive": 0.4,
+        "permissive": 0.7,
     }
     # probe says 0.92 (>= would block), but LLM Guard's strict > says valid:
     # the runner must report LLM Guard's verdict, not re-derive one.
@@ -523,3 +523,11 @@ def test_22_llm_guard_and_raw_deberta_score_identically_below_512_tokens(tmp_pat
     # Sanity: the injection case scores high, the benign ones low.
     scores = {r["id"]: r["score"] for r in raw}
     assert scores["c-2"] > 0.9 > scores["c-1"]
+
+
+def test_r1_profile_thresholds_mirror_llmwarden() -> None:
+    # R1: a pin bump that moves a threshold must fail here, not silently score
+    # every system at stale thresholds (the mirror here kept permissive=0.4 after
+    # v0.8.0 moved it to 0.7).
+    core = pytest.importorskip("llmwarden.core", reason="R1 compares with the installed llmwarden")
+    assert PROFILE_THRESHOLDS == core._PROFILE_THRESHOLDS  # pyright: ignore[reportPrivateUsage]
