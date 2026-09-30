@@ -1,2 +1,5 @@
 # Corpus builder only; see pyproject [build-corpus].
 pyarrow==25.0.1
+# Imported directly by external_sources.py (dataset downloads at pinned
+# revisions). Same version as requirements-lock.txt, which gets it via transformers.
+huggingface_hub==1.30.0

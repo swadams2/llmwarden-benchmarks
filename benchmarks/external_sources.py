@@ -32,7 +32,11 @@ _FILES: dict[tuple[str, str, str], str] = {
     (GANDALF, "default", "train"): "data/train-00000-of-00001-ded53be747ff55cd.parquet",
     (GANDALF, "default", "validation"): "data/validation-00000-of-00001-94481a2a09ff2fff.parquet",
     (GANDALF, "default", "test"): "data/test-00000-of-00001-bc92128b9288a6d1.parquet",
-    (IN_THE_WILD, "jailbreak_2023_12_25", "train"): "jailbreak_2023_12_25/train-00000-of-00001.parquet",
+    (
+        IN_THE_WILD,
+        "jailbreak_2023_12_25",
+        "train",
+    ): "jailbreak_2023_12_25/train-00000-of-00001.parquet",
     (IN_THE_WILD, "regular_2023_12_25", "train"): "regular_2023_12_25/train-00000-of-00001.parquet",
     (SPML, "default", "train"): "spml_prompt_injection.csv",
     (NOTINJECT, "default", "NotInject_one"): "data/NotInject_one-00000-of-00001.parquet",

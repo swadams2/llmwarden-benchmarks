@@ -52,9 +52,9 @@ def score_cases(
     cases: Iterable[Case], scanners: Mapping[str, ScannerLike], probe: Callable[[str], float]
 ) -> Iterator[Row]:
     if set(scanners) != set(THRESHOLDS):
-        missing = sorted(set(THRESHOLDS) ^ set(scanners))
+        mismatch = sorted(set(THRESHOLDS) ^ set(scanners))
         raise ValueError(
-            f"need one scanner per threshold {sorted(THRESHOLDS)}; mismatch: {missing}"
+            f"need one scanner per threshold {sorted(THRESHOLDS)}; mismatch: {mismatch}"
         )
     for case in cases:
         text = case["text"]

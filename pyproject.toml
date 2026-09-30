@@ -13,10 +13,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "basedpyright"]
 # Corpus builder only (benchmarks/build_external_slice.py): 4 of the 6 external
-# datasets are Parquet-only. Exact-pinned; install from
+# datasets are Parquet-only, and every dataset is downloaded with huggingface_hub
+# at a pinned revision. Exact-pinned; install from
 # requirements-build-corpus.lock.txt with --require-hashes. Scoring runners never
-# import it.
-build-corpus = ["pyarrow==25.0.1"]
+# import pyarrow.
+build-corpus = ["pyarrow==25.0.1", "huggingface_hub==1.30.0"]
 
 [build-system]
 requires = ["hatchling"]

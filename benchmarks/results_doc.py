@@ -3,7 +3,9 @@ tables, limitations) followed by the frozen v1 section, carried over
 byte-for-byte from `HISTORICAL_MARKER` onward.
 
 The prose states methods and limitations, never findings: numbers live only
-in the generated tables, so a re-score can't leave a stale claim behind.
+in the generated tables, so a re-score can't leave a stale claim behind. The
+few corpus counts the prose does state (277 cases, 23 over 512 tokens, ...)
+are v3's, so `main` refuses any corpus but frozen v3.
 
 Run (reads RESULTS.md's historical section first, then replaces the file):
     python -m benchmarks.results_doc --update RESULTS.md corpus/evasion_corpus_v3.jsonl \\
@@ -12,22 +14,37 @@ Run (reads RESULTS.md's historical section first, then replaces the file):
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import tempfile
+import textwrap
 from collections.abc import Sequence
 from pathlib import Path
 
+from benchmarks.run_llm_guard import THRESHOLDS as LLM_GUARD_THRESHOLDS
+from benchmarks.runner_common import load_cases
 from benchmarks.scorer import (
     JsonRecord,
     System,
-    load_jsonl,
+    corpus_summary,
     load_systems,
     parse_pair,
     render_tables,
 )
 
 HISTORICAL_MARKER = "<!-- historical: v1 -->"
+
+# sha256 of corpus/evasion_corpus_v3.jsonl as frozen 2026-09-29 (`477aef5`).
+V3_CORPUS_SHA256 = "b2eb5cc281793b111c65c733ca3ee17ce5d56c86f6f19cac8be130ddb91b4991"
+
+# LLM Guard rounds to 2 decimals before comparing, so only a score this close
+# to a threshold can get a different verdict than a plain `>=` would give.
+BOUNDARY_MARGIN = 0.005
+
+# Mirrors llmwarden.core._CLASSIFIER_TIME_BUDGET_MS (module-private, not
+# exported -- hardcoded here rather than reached into, like PROFILE_THRESHOLDS).
+LLMWARDEN_CANDIDATE_BUDGET_MS = 180
 
 # name -> (what it is, what is scored, own shipped decision). Wording for the
 # third-party systems follows the spec (Phase 2, "System descriptions").
@@ -76,6 +93,15 @@ SYSTEM_DESCRIPTIONS: dict[str, tuple[str, str, str]] = {
     ),
 }
 
+# Table labels, in table order, for systems that see only the first 512
+# tokens vs. those that score overlapping windows.
+TRUNCATING = {
+    "LlamaFirewall": "LlamaFirewall",
+    "LLM Guard": "LLM Guard (FULL)",
+    "raw DeBERTa": "raw DeBERTa",
+}
+WINDOWING = ("LLMWarden", "raw PG2-22M")
+
 METHODOLOGY = """\
 ## Methodology
 
@@ -101,7 +127,7 @@ datasets that LLMWarden was not tuned on, deduplicated and human-reviewed (see
 `corpus/SCHEMA.md` and `corpus/CHANGELOG.md`). LLMWarden is never tuned on it.
 """
 
-LIMITATIONS = """\
+LIMITATIONS_HEAD = """\
 - **Home-field bias is reduced, not removed.** 77 of 277 cases come from
   LLMWarden's own tests or reuse its trigger phrases; read the `external` rows
   for the least LLMWarden-shaped view. Any external source may still be in a
@@ -117,24 +143,26 @@ LIMITATIONS = """\
   stratified by similarity quartile.
 - **Part of the benign slice is multilingual.** About 13 of the 50 NotInject
   cases are not in English, so benign FPR partly measures multilingual
-  over-blocking.
-- **Truncation is part of what is measured.** 23 of 277 cases exceed 512
-  tokens (17 of the 40 in-the-wild jailbreaks). LlamaFirewall, LLM Guard (FULL)
-  and raw DeBERTa see only the first 512 tokens; LLMWarden and raw PG2-22M
-  score overlapping windows. These are the systems' shipped behaviours.
-- **Threshold semantics differ only at the boundary.** LLM Guard rounds to 2
-  decimals and blocks on `>`; the others block on `>=`. On this corpus no score
-  falls within 0.005 of any threshold, so this changes no verdict.
+  over-blocking."""
+
+LLAMAFIREWALL_SCORED = """\
 - **LlamaFirewall's preprocessing fails open.** If its whitespace-aware
-  preprocessing raises, it silently scores the unpreprocessed text.
-- **Reproduction caveat.** LLM Guard and LlamaFirewall pin `transformers`
-  4.51.3, which has published CVEs. They were run in isolated, hash-locked
-  environments, offline, with model revisions pinned and their configs
-  inspected. This affects how to rerun them safely, not their scores.
+  preprocessing raises, it silently scores the unpreprocessed text."""
+
+LLAMAFIREWALL_UNSCORED = """\
+- **LlamaFirewall is not yet scored.** It is waiting on gated access to Prompt
+  Guard 2 (86M) and is absent from every table above. When it is scored, note
+  that its whitespace-aware preprocessing fails open: if that raises, the
+  unpreprocessed text is scored."""
+
+LIMITATIONS_TAIL = """\
+- **Reproduction caveat.** The LLM Guard and LlamaFirewall environments pin
+  `transformers` 4.51.3, which has published CVEs. Both are isolated and
+  hash-locked, and scoring runs offline with model revisions pinned and
+  configs inspected. This affects how to rerun them safely, not the scores.
 - **Scope** is direct-input injection/jailbreak detection only; output, PII,
   secret and tool-call scanning are not compared. Point-in-time results on a
-  small corpus, not an exhaustive red-team.
-"""
+  small corpus, not an exhaustive red-team."""
 
 
 class UndocumentedSystemError(ValueError):
@@ -145,6 +173,10 @@ class MissingHistoricalSectionError(ValueError):
     """RESULTS.md lacks the marker that starts the frozen v1 section."""
 
 
+class UnexpectedCorpusError(ValueError):
+    """The corpus is not frozen v3, whose counts the Limitations prose states."""
+
+
 def historical_section(text: str) -> str:
     index = text.find(HISTORICAL_MARKER)
     if index == -1:
@@ -152,33 +184,120 @@ def historical_section(text: str) -> str:
     return text[index:]
 
 
+def _bullet(text: str) -> str:
+    return textwrap.fill(text, width=80, initial_indent="- ", subsequent_indent="  ")
+
+
+def _names(names: Sequence[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
 def _refusal_lines(systems: Sequence[System]) -> list[str]:
-    lines: list[str] = []
+    """One bullet per distinct (cases, reasons) pair, naming every system that
+    refused exactly those cases. Reasons are read from each row's `refused`."""
+    groups: dict[tuple[tuple[str, ...], tuple[str, ...]], list[str]] = {}
     for system in systems:
-        refused = [i for i, row in system.results.items() if row.get("refused")]
+        refused: dict[str, str] = {}
+        for case_id, row in system.results.items():
+            match row:
+                case {"refused": str() as reason} if reason:
+                    refused[case_id] = reason
+                case _:
+                    pass
         if refused:
-            cases = ", ".join(f"`{i}`" for i in refused)
-            noun = "case" if len(refused) == 1 else "cases"
-            lines.append(
-                f"- **Refusals count as blocked.** {len(refused)} {noun} ({cases}) refused by "
-                + f"{system.name} as too long to score safely (`InputTooLongError`, which tells "
-                + "the caller to reject the input). Counted as blocked, with no score."
-            )
+            key = (tuple(refused), tuple(sorted(set(refused.values()))))
+            groups.setdefault(key, []).append(system.name)
+    lines: list[str] = []
+    for (cases, reasons), names in groups.items():
+        too_long = reasons == ("InputTooLongError",)
+        why = " as too long to score safely" if too_long else ""
+        note = ", which tells the caller to reject the input" if too_long else ""
+        listed = ", ".join(f"`{i}`" for i in cases)
+        noun = "case" if len(cases) == 1 else "cases"
+        errors = ", ".join(f"`{r}`" for r in reasons)
+        lines.append(
+            f"- **Refusals count as blocked.** {len(cases)} {noun} ({listed}) refused by "
+            + f"{_names(names)}{why} ({errors}{note}). Counted as blocked, with no score."
+        )
     return lines
+
+
+def _truncation_line(scored: set[str]) -> str:
+    clauses: list[str] = []
+    truncating = [label for name, label in TRUNCATING.items() if name in scored]
+    if truncating:
+        clauses.append(f"{_names(truncating)} see only the first 512 tokens")
+    windowing = [name for name in WINDOWING if name in scored]
+    if windowing:
+        clauses.append(f"{_names(windowing)} score overlapping windows")
+    return _bullet(
+        "**Truncation is part of what is measured.** 23 of 277 cases exceed 512 tokens "
+        + f"(17 of the 40 in-the-wild jailbreaks). {'; '.join(clauses)}. "
+        + "These are the systems' shipped behaviours."
+    )
+
+
+def _boundary_line(llm_guard: System) -> str:
+    thresholds = sorted(set(LLM_GUARD_THRESHOLDS.values()), reverse=True)
+    near: list[str] = []
+    for case_id, row in llm_guard.results.items():
+        match row:
+            case {"score": float() as score} if any(
+                abs(score - t) <= BOUNDARY_MARGIN for t in thresholds
+            ):
+                near.append(case_id)
+            case _:
+                pass
+    if near:
+        one = len(near) == 1
+        listed = ", ".join(f"`{i}`" for i in near)
+        finding = (
+            f"{len(near)} LLM Guard {'score falls' if one else 'scores fall'} within "
+            + f"{BOUNDARY_MARGIN} of a threshold ({listed}); "
+            + f"{'its verdict is' if one else 'their verdicts are'} LLM Guard's own, "
+            + "rounding included."
+        )
+    else:
+        listed = ", ".join(f"{t:g}" for t in thresholds)
+        finding = (
+            f"No LLM Guard score falls within {BOUNDARY_MARGIN} of a threshold it is "
+            + f"compared against ({listed}), so this changes no verdict here."
+        )
+    return _bullet(
+        "**Threshold semantics differ only at the boundary.** LLM Guard rounds to 2 "
+        + f"decimals and blocks on `>`; the others block on `>=`. {finding}"
+    )
+
+
+def _time_bound_line() -> str:
+    return _bullet(
+        "**LLMWarden's decoded-candidate scoring is time-bounded.** `scan()` stops "
+        + f"scoring decoded encoding candidates after {LLMWARDEN_CANDIDATE_BUDGET_MS} ms "
+        + "of wall-clock time, so a much slower machine could reach a different verdict. "
+        + "The runner loads the model before scoring, so loading time is never counted; "
+        + "a cold run and two warm-up runs of v3 gave identical per-case results."
+    )
+
+
+def _limitations(systems: Sequence[System]) -> str:
+    by_name = {s.name: s for s in systems}
+    lines = [*_refusal_lines(systems), LIMITATIONS_HEAD, _truncation_line(set(by_name))]
+    if "LLM Guard" in by_name:
+        lines.append(_boundary_line(by_name["LLM Guard"]))
+    if "LLMWarden" in by_name:
+        lines.append(_time_bound_line())
+    lines.append(LLAMAFIREWALL_SCORED if "LlamaFirewall" in by_name else LLAMAFIREWALL_UNSCORED)
+    lines.append(LIMITATIONS_TAIL)
+    return "\n".join(lines)
 
 
 def render_document(corpus_path: str, corpus: list[JsonRecord], systems: Sequence[System]) -> str:
     unknown = [s.name for s in systems if s.name not in SYSTEM_DESCRIPTIONS]
     if unknown:
         raise UndocumentedSystemError(f"no description for scored system(s): {unknown}")
-    n_mal = sum(c["label"] == "malicious" for c in corpus)
-    corpus_line = (
-        f"Corpus: `{corpus_path}`, {len(corpus)} cases "
-        + f"({n_mal} malicious / {len(corpus) - n_mal} benign).\n"
-    )
     parts = [
         "# Prompt-injection detectors on the LLMWarden evasion corpus\n",
-        corpus_line,
+        corpus_summary(corpus_path, corpus) + "\n",
         "## Systems\n",
         "| System | What it is | What is scored | Own shipped decision |",
         "|---|---|---|---|",
@@ -187,7 +306,7 @@ def render_document(corpus_path: str, corpus: list[JsonRecord], systems: Sequenc
         METHODOLOGY,
         render_tables(corpus, list(systems)),
         "## Limitations\n",
-        "\n".join([*_refusal_lines(systems), LIMITATIONS.rstrip("\n")]),
+        _limitations(systems),
     ]
     return "\n".join(parts) + "\n"
 
@@ -206,6 +325,15 @@ def update_results_file(path: Path, generated: str) -> None:
         raise
 
 
+def _require_frozen_v3(corpus_path: str) -> None:
+    digest = hashlib.sha256(Path(corpus_path).read_bytes()).hexdigest()
+    if digest != V3_CORPUS_SHA256:
+        raise UnexpectedCorpusError(
+            f"{corpus_path}: sha256 {digest[:12]}... is not frozen v3 "
+            + f"({V3_CORPUS_SHA256[:12]}...); the Limitations prose states v3's counts"
+        )
+
+
 def main(argv: Sequence[str]) -> None:
     if len(argv) < 4 or argv[0] != "--update":
         print(
@@ -215,7 +343,8 @@ def main(argv: Sequence[str]) -> None:
         )
         raise SystemExit(2)
     results_path, corpus_path, pair_args = Path(argv[1]), argv[2], argv[3:]
-    corpus = load_jsonl(corpus_path)
+    _require_frozen_v3(corpus_path)
+    corpus = load_cases(corpus_path)
     systems = load_systems(corpus, [parse_pair(a) for a in pair_args])
     update_results_file(results_path, render_document(corpus_path, corpus, systems))
 

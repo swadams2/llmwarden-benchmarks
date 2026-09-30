@@ -18,17 +18,17 @@ Run: python -m benchmarks.scorer corpus/evasion_corpus_v3.jsonl \\
 
 from __future__ import annotations
 
-import json
 import sys
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from benchmarks.runner_common import PROFILE_THRESHOLDS
+from benchmarks.runner_common import PROFILE_THRESHOLDS, load_cases
 
 JsonRecord = dict[str, Any]
 DECISIONS = ["default", *PROFILE_THRESHOLDS]
+LABELS = ("malicious", "benign")
 
 
 class DuplicateSystemError(ValueError):
@@ -39,16 +39,15 @@ class ResultsMismatchError(ValueError):
     """A results file does not cover exactly the corpus, or holds bad values."""
 
 
+class CorpusLabelError(ValueError):
+    """A corpus case is labelled neither malicious nor benign."""
+
+
 @dataclass(frozen=True)
 class System:
     name: str
     results: dict[str, JsonRecord]
     has_default: bool
-
-
-def load_jsonl(path: str) -> list[JsonRecord]:
-    with open(path, encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
 
 
 def _validated(name: str, rows: list[JsonRecord], corpus_ids: list[str]) -> System:
@@ -71,23 +70,41 @@ def _validated(name: str, rows: list[JsonRecord], corpus_ids: list[str]) -> Syst
                 raise ResultsMismatchError(
                     f"{name}: {row['id']} {key} is {row.get(key)!r}, not a bool"
                 )
-    defaults = {row.get("blocked_default") is None for row in results.values()}
-    if len(defaults) != 1 or not all(
-        isinstance(row["blocked_default"], bool) for row in results.values() if defaults == {False}
-    ):
+    # A system ships a default for every case or for none: a partial column
+    # would silently drop cases from the own-default table.
+    defaults = [row.get("blocked_default") for row in results.values()]
+    has_default = all(isinstance(d, bool) for d in defaults)
+    if not defaults or not (has_default or all(d is None for d in defaults)):
         raise ResultsMismatchError(
             f"{name}: blocked_default must be a bool for every case or null for every case"
         )
-    return System(name, results, has_default=defaults == {False})
+    return System(name, results, has_default=has_default)
+
+
+def _check_labels(corpus: list[JsonRecord]) -> None:
+    # Anything but "malicious" used to be tallied as benign, so a typo'd label
+    # would silently move a case from recall into FPR.
+    bad = [c["id"] for c in corpus if c.get("label") not in LABELS]
+    if bad:
+        raise CorpusLabelError(f"cases labelled neither {' nor '.join(LABELS)}: {bad[:5]}")
 
 
 def load_systems(corpus: list[JsonRecord], pairs: Sequence[tuple[str, str]]) -> list[System]:
+    _check_labels(corpus)
     names = [name for name, _ in pairs]
     dupes = sorted({n for n in names if names.count(n) > 1})
     if dupes:
         raise DuplicateSystemError(f"duplicate system names: {dupes}")
     corpus_ids = [c["id"] for c in corpus]
-    return [_validated(name, load_jsonl(path), corpus_ids) for name, path in pairs]
+    return [_validated(name, load_cases(path), corpus_ids) for name, path in pairs]
+
+
+def corpus_summary(corpus_path: str, corpus: list[JsonRecord]) -> str:
+    n_mal = sum(c["label"] == "malicious" for c in corpus)
+    return (
+        f"Corpus: `{corpus_path}`, {len(corpus)} cases "
+        f"({n_mal} malicious / {len(corpus) - n_mal} benign)."
+    )
 
 
 def _source_bucket(source: str) -> str:
@@ -119,8 +136,8 @@ def _tallies(
     groups: dict[Any, _Tally] = defaultdict(fresh)
     overall = fresh()
     for case in corpus:
+        malicious = case["label"] == "malicious"
         for t in (groups[key(case)], overall):
-            malicious = case["label"] == "malicious"
             if malicious:
                 t.malicious += 1
             else:
@@ -135,9 +152,13 @@ def _cells(t: _Tally) -> list[str]:
     return [_rate(c, t.malicious) for c in t.caught] + [_rate(f, t.benign) for f in t.flagged]
 
 
+def _row(cells: Sequence[str]) -> str:
+    return "| " + " | ".join(cells) + " |"
+
+
 def _header(first: list[str], systems: list[System]) -> list[str]:
     cols = [*first, *(f"{s.name} recall" for s in systems), *(f"{s.name} FPR" for s in systems)]
-    return ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
+    return [_row(cols), "|" + "---|" * len(cols)]
 
 
 def technique_table(corpus: list[JsonRecord], systems: list[System], decision: str) -> list[str]:
@@ -146,13 +167,12 @@ def technique_table(corpus: list[JsonRecord], systems: list[System], decision: s
     )
     lines = _header(["Technique", "Source", "n (mal/ben)"], systems)
     for (technique, source), t in sorted(groups.items()):
-        cells = [technique, source, f"{t.malicious}/{t.benign}", *_cells(t)]
-        lines.append("| " + " | ".join(cells) + " |")
+        lines.append(_row([technique, source, f"{t.malicious}/{t.benign}", *_cells(t)]))
     bold = [
         f"**{c}**"
         for c in ["Overall", "all", f"{overall.malicious}/{overall.benign}", *_cells(overall)]
     ]
-    lines.append("| " + " | ".join(bold) + " |\n")
+    lines.append(_row(bold) + "\n")
     return lines
 
 
@@ -160,7 +180,7 @@ def source_table(corpus: list[JsonRecord], systems: list[System], decision: str)
     groups, _ = _tallies(corpus, systems, decision, lambda c: _source_bucket(c["source"]))
     lines = _header(["Source", "n (mal/ben)"], systems)
     for source, t in sorted(groups.items()):
-        lines.append("| " + " | ".join([source, f"{t.malicious}/{t.benign}", *_cells(t)]) + " |")
+        lines.append(_row([source, f"{t.malicious}/{t.benign}", *_cells(t)]))
     return lines
 
 
@@ -198,13 +218,9 @@ def parse_pair(arg: str) -> tuple[str, str]:
 
 def main(corpus_path: str, pair_args: Sequence[str]) -> None:
     sys.stdout.reconfigure(encoding="utf-8")  # pyright: ignore[reportAttributeAccessIssue]
-    corpus = load_jsonl(corpus_path)
+    corpus = load_cases(corpus_path)
     systems = load_systems(corpus, [parse_pair(a) for a in pair_args])
-    n_mal = sum(c["label"] == "malicious" for c in corpus)
-    sys.stdout.write(
-        f"Corpus: `{corpus_path}`, {len(corpus)} cases "
-        f"({n_mal} malicious / {len(corpus) - n_mal} benign).\n\n"
-    )
+    sys.stdout.write(corpus_summary(corpus_path, corpus) + "\n\n")
     sys.stdout.write(render_tables(corpus, systems))
 
 

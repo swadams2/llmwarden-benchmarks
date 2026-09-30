@@ -15,8 +15,10 @@ import pytest
 
 from benchmarks.results_doc import historical_section
 from benchmarks.scorer import (
+    CorpusLabelError,
     DuplicateSystemError,
     ResultsMismatchError,
+    corpus_summary,
     load_systems,
     render_tables,
     render_threshold_sections,
@@ -178,6 +180,23 @@ def test_non_boolean_blocked_value_is_rejected(tmp_path: Path) -> None:
     rows[0]["blocked_balanced"] = "false"  # truthy string would count as blocked
     with pytest.raises(ResultsMismatchError, match=r"x-1.*blocked_balanced"):
         load_systems(CORPUS, [("A", _write(tmp_path, "a", rows))])
+
+
+@pytest.mark.parametrize("label", ["Malicious", "injection", "", None])
+def test_unknown_corpus_label_is_rejected(tmp_path: Path, label: object) -> None:
+    # Anything not "malicious" used to be tallied as benign, so a typo'd label
+    # would silently move a case from recall into FPR.
+    corpus = [dict(c) for c in CORPUS]
+    corpus[3]["label"] = label
+    path = _write(tmp_path, "a", _rows(NONE, default=NONE))
+    with pytest.raises(CorpusLabelError, match="x-4"):
+        load_systems(corpus, [("A", path)])
+
+
+def test_corpus_summary_counts_labels() -> None:
+    assert corpus_summary("c.jsonl", CORPUS) == (
+        "Corpus: `c.jsonl`, 6 cases (4 malicious / 2 benign)."
+    )
 
 
 def test_no_system_ships_a_default_omits_the_own_default_section(tmp_path: Path) -> None:

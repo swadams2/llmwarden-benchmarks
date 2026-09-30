@@ -7,7 +7,7 @@ dist/
 build/
 .venv/
 venv/
-results/*.jsonl
+results/
 .venv-*/
 # Corpus build intermediates (drafts, drops reports): unreviewed third-party
 # content must never be committed before the human review gate.

@@ -155,6 +155,21 @@ def _allocate(quota: int, strata: Sequence[str], available: Mapping[str, int]) -
     return alloc
 
 
+def _drop_reason(norm: str, review: str | None, *checks: tuple[_Index, str]) -> str | None:
+    """Why a candidate is dropped, or None to keep it. Empty text and a review
+    rejection come first, then each (index, reason) check in the order given;
+    the first that applies is recorded. A reason ending in ":" gets the
+    matched tag appended (the v2 case id or the excluded dataset)."""
+    if not norm:
+        return "empty-text"
+    if review is not None:
+        return f"review:{review}"
+    for index, reason in checks:
+        if (hit := index.find(norm)) is not None:
+            return f"{reason}{hit}" if reason.endswith(":") else reason
+    return None
+
+
 def build_slice(
     candidates: Sequence[Candidate],
     existing: Mapping[str, str],
@@ -181,7 +196,9 @@ def build_slice(
     # since ignoring it would let a reviewer-rejected row back into the corpus.
     unmatched = sorted(set(rejected) - set(refs))
     if unmatched:
-        raise ValueError(f"{len(unmatched)} review rejection(s) match no candidate: {unmatched[:5]}")
+        raise ValueError(
+            f"{len(unmatched)} review rejection(s) match no candidate: {unmatched[:5]}"
+        )
 
     existing_index = _index((text, case_id) for case_id, text in existing.items())
     exclusion_index = _index((t, ds) for ds, texts in exclusions.items() for t in texts)
@@ -202,18 +219,16 @@ def build_slice(
             eligible: list[Candidate] = []
             for c in group[: quota * CAP_MULTIPLIER]:
                 norm = normalize_text(c.text)
-                if not norm:
-                    result.drops.append(Drop(dataset, c.row_ref, "empty-text"))
-                elif (why := rejected.get((dataset, c.row_ref))) is not None:
-                    result.drops.append(Drop(dataset, c.row_ref, f"review:{why}"))
-                elif (hit := existing_index.find(norm)) is not None:
-                    result.drops.append(Drop(dataset, c.row_ref, f"dup:v2:{hit}"))
-                elif (hit := exclusion_index.find(norm)) is not None:
-                    result.drops.append(Drop(dataset, c.row_ref, f"excluded:{hit}"))
-                elif higher_priority.find(norm) is not None:
-                    result.drops.append(Drop(dataset, c.row_ref, "dup:cross-source"))
-                elif within.find(norm) is not None:
-                    result.drops.append(Drop(dataset, c.row_ref, "dup:within-source"))
+                reason = _drop_reason(
+                    norm,
+                    rejected.get((dataset, c.row_ref)),
+                    (existing_index, "dup:v2:"),
+                    (exclusion_index, "excluded:"),
+                    (higher_priority, "dup:cross-source"),
+                    (within, "dup:within-source"),
+                )
+                if reason is not None:
+                    result.drops.append(Drop(dataset, c.row_ref, reason))
                 else:
                     within.add(norm, dataset)
                     eligible.append(c)
@@ -223,8 +238,8 @@ def build_slice(
                     f"{dataset} ({label}): quota {quota}, only {len(eligible)} eligible "
                     f"after dedupe/exclusions -- not backfilling from another source"
                 )
-            strata = sorted({c.stratum for c in eligible})
-            available = {s: sum(1 for c in eligible if c.stratum == s) for s in strata}
+            available = Counter(c.stratum for c in eligible)
+            strata = sorted(available)
             alloc = _allocate(quota, strata, available)
             taken = {s: 0 for s in strata}
             for c in eligible:  # shuffled order
@@ -239,7 +254,8 @@ def build_slice(
                             technique=c.technique,
                             target_surface="fast_path_or_classifier",
                             source=f"external:{c.dataset}@{c.revision}",
-                            notes=f"upstream row {c.row_ref}" + (f"; stratum {c.stratum}" if c.stratum else ""),
+                            notes=f"upstream row {c.row_ref}"
+                            + (f"; stratum {c.stratum}" if c.stratum else ""),
                         )
                     )
         for c in pool:
@@ -278,8 +294,8 @@ SEED = 20260929
 
 
 def load_rejections(path: Path) -> dict[tuple[str, str], str]:
-    if not path.exists():
-        return {}
+    # Required, not optional: a missing file would load as "no rejections" and
+    # silently let every reviewer-rejected row back into the draft.
     raw: object = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise TypeError(f"{path}: expected an object of {{dataset: {{row_ref: reason}}}}")
@@ -316,23 +332,39 @@ def main(output: str) -> None:
     drops_path = out.with_suffix(".drops.jsonl")
     with open(drops_path, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(json.dumps(asdict(drop), ensure_ascii=False) + "\n" for drop in result.drops)
-        f.writelines(json.dumps({"skipped_row": note}, ensure_ascii=False) + "\n" for note in skipped)
+        f.writelines(
+            json.dumps({"skipped_row": note}, ensure_ascii=False) + "\n" for note in skipped
+        )
 
     def show(title: str, counts: Counter[str]) -> None:
         print(title, file=sys.stderr)
         for key, n in sorted(counts.items()):
             print(f"  {n:>6}  {key}", file=sys.stderr)
 
-    show("candidates loaded (dataset, label):", Counter(f"{c.dataset} {c.label}" for c in candidates))
+    show(
+        "candidates loaded (dataset, label):", Counter(f"{c.dataset} {c.label}" for c in candidates)
+    )
     print(f"upstream rows skipped (failed validation): {len(skipped)}", file=sys.stderr)
-    show("drops by reason:", Counter(d.reason.split(":v2:")[0] if d.reason.startswith("dup:v2") else d.reason for d in result.drops))
-    show("emitted (dataset, label):", Counter(f"{c.source.split('@')[0]} {c.label}" for c in result.cases))
+    show(
+        "drops by reason:",
+        Counter(
+            d.reason.split(":v2:")[0] if d.reason.startswith("dup:v2") else d.reason
+            for d in result.drops
+        ),
+    )
+    show(
+        "emitted (dataset, label):",
+        Counter(f"{c.source.split('@')[0]} {c.label}" for c in result.cases),
+    )
     print(f"load {loaded - started:.1f}s, build {built - loaded:.1f}s", file=sys.stderr)
     print(f"draft: {out}\ndrops: {drops_path}", file=sys.stderr)
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("usage: python -m benchmarks.build_external_slice corpus/_evasion_corpus_v3.draft.jsonl", file=sys.stderr)
+        print(
+            "usage: python -m benchmarks.build_external_slice corpus/_evasion_corpus_v3.draft.jsonl",
+            file=sys.stderr,
+        )
         raise SystemExit(2)
     main(sys.argv[1])

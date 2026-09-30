@@ -72,6 +72,12 @@ def main(corpus_path: str, out: TextIO) -> None:
     # One shared classifier instance across all 3 profiles -- avoids loading
     # the same 283MB model 3 times over.
     shared_classifier = PromptGuard2Classifier()
+    # Load the weights before scoring. scan() bounds decoded-candidate scoring
+    # by wall-clock time (180 ms) measured from before its first classifier
+    # call, which lazy-loads the model, so a cold first case would spend its
+    # budget on loading. Verified 2026-09-29 to change no v3 verdict or score;
+    # this keeps it that way.
+    _ = shared_classifier.score("warm-up")
     scanners = {
         profile: LLMWarden(profile=profile, classifier=shared_classifier).scan
         for profile in PROFILE_THRESHOLDS

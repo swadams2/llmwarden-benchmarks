@@ -3,6 +3,7 @@ frozen v1 historical section carried over byte-for-byte."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -12,9 +13,12 @@ import pytest
 from benchmarks.results_doc import (
     HISTORICAL_MARKER,
     SYSTEM_DESCRIPTIONS,
+    V3_CORPUS_SHA256,
     MissingHistoricalSectionError,
     UndocumentedSystemError,
+    UnexpectedCorpusError,
     historical_section,
+    main,
     render_document,
     update_results_file,
 )
@@ -78,6 +82,86 @@ def test_refusals_are_disclosed_from_the_data() -> None:
     assert "1 case (`a`) refused by LLMWarden" in doc
     none_refused = render_document("c.jsonl", CORPUS, [_system("LLMWarden", True)])
     assert "refused by" not in none_refused
+
+
+def test_identical_refusals_across_systems_are_one_bullet() -> None:
+    # A1: LLMWarden and raw PG2-22M refuse the same case; one bullet names both.
+    systems = [_system("LLMWarden", True, refused=True), _system("raw PG2-22M", None, refused=True)]
+    doc = render_document("c.jsonl", CORPUS, systems)
+    assert doc.count("**Refusals count as blocked.**") == 1
+    assert "1 case (`a`) refused by LLMWarden and raw PG2-22M" in doc
+
+
+def test_refusal_reason_comes_from_the_data() -> None:
+    # The exception name is read from row["refused"], not assumed; the
+    # "too long" explanation only accompanies InputTooLongError.
+    system = _system("LLMWarden", True)
+    system.results["a"]["refused"] = "SomeOtherError"
+    system.results["a"]["score"] = None
+    doc = render_document("c.jsonl", CORPUS, [system])
+    assert "(`SomeOtherError`)" in doc
+    assert "too long" not in doc and "InputTooLongError" not in doc
+
+
+def _llm_guard(score_a: float) -> System:
+    system = _system("LLM Guard", True)
+    system.results["a"]["score"] = score_a
+    return system
+
+
+def test_boundary_bullet_is_computed_from_llm_guard_scores() -> None:
+    # R2: the old static sentence claimed no score of ANY system was near a
+    # threshold, which was false for LLMWarden/raw PG2 (0.2469, 0.2511).
+    # Bullets are wrapped at 80 columns; compare with line breaks collapsed.
+    near = " ".join(render_document("c.jsonl", CORPUS, [_llm_guard(0.2469)]).split())
+    assert "1 LLM Guard score falls within 0.005 of a threshold (`a`)" in near
+    clear = " ".join(render_document("c.jsonl", CORPUS, [_llm_guard(0.5)]).split())
+    assert "No LLM Guard score falls within 0.005" in clear
+    for doc in (near, clear):
+        assert "On this corpus no score falls" not in doc
+
+
+def test_boundary_bullet_absent_without_llm_guard() -> None:
+    doc = render_document("c.jsonl", CORPUS, [_system("LLMWarden", True)])
+    assert "Threshold semantics" not in doc
+
+
+def test_unscored_llamafirewall_is_marked_not_yet_scored() -> None:
+    # A2: Limitations must not describe LlamaFirewall's behaviour as if it had
+    # been measured when it has not been scored.
+    doc = render_document("c.jsonl", CORPUS, [_system("LLMWarden", True)])
+    limitations = doc.split("## Limitations", 1)[1]
+    assert "**LlamaFirewall is not yet scored.**" in limitations
+    assert "LlamaFirewall, LLM Guard" not in limitations  # truncation list: scored only
+    scored = render_document("c.jsonl", CORPUS, [_system("LlamaFirewall", False)])
+    assert "**LlamaFirewall's preprocessing fails open.**" in scored
+    assert "not yet scored" not in scored
+
+
+def test_llmwarden_time_bound_is_disclosed_only_when_scored() -> None:
+    # R3: scan()'s decoded-candidate path is wall-clock bounded.
+    with_lw = render_document("c.jsonl", CORPUS, [_system("LLMWarden", True)])
+    assert "180 ms" in with_lw.split("## Limitations", 1)[1]
+    without = render_document("c.jsonl", CORPUS, [_system("raw DeBERTa", None)])
+    assert "180 ms" not in without
+
+
+def test_committed_v3_corpus_matches_the_pinned_hash() -> None:
+    v3 = Path(__file__).resolve().parent.parent / "corpus" / "evasion_corpus_v3.jsonl"
+    assert hashlib.sha256(v3.read_bytes()).hexdigest() == V3_CORPUS_SHA256
+
+
+def test_update_refuses_a_corpus_other_than_frozen_v3(tmp_path: Path) -> None:
+    # R2: the prose hardcodes v3 counts (277 cases, 23 over 512 tokens, ...),
+    # so rendering it over any other corpus would publish wrong numbers.
+    corpus = tmp_path / "corpus.jsonl"
+    corpus.write_text("".join(json.dumps(c) + "\n" for c in CORPUS), encoding="utf-8")
+    results = tmp_path / "RESULTS.md"
+    original = f"old\n\n{HISTORICAL_MARKER}\n# v1\n".encode()
+    results.write_bytes(original)
+    with pytest.raises(UnexpectedCorpusError, match="sha256"):
+        main(["--update", str(results), str(corpus), "LLMWarden=unused.jsonl"])
+    assert results.read_bytes() == original
 
 
 def test_historical_section_is_everything_from_the_marker() -> None:

@@ -174,8 +174,7 @@ datasets that LLMWarden was not tuned on, deduplicated and human-reviewed (see
 
 ## Limitations
 
-- **Refusals count as blocked.** 1 case (`ext-itw-022`) refused by LLMWarden as too long to score safely (`InputTooLongError`, which tells the caller to reject the input). Counted as blocked, with no score.
-- **Refusals count as blocked.** 1 case (`ext-itw-022`) refused by raw PG2-22M as too long to score safely (`InputTooLongError`, which tells the caller to reject the input). Counted as blocked, with no score.
+- **Refusals count as blocked.** 1 case (`ext-itw-022`) refused by LLMWarden and raw PG2-22M as too long to score safely (`InputTooLongError`, which tells the caller to reject the input). Counted as blocked, with no score.
 - **Home-field bias is reduced, not removed.** 77 of 277 cases come from
   LLMWarden's own tests or reuse its trigger phrases; read the `external` rows
   for the least LLMWarden-shaped view. Any external source may still be in a
@@ -192,19 +191,27 @@ datasets that LLMWarden was not tuned on, deduplicated and human-reviewed (see
 - **Part of the benign slice is multilingual.** About 13 of the 50 NotInject
   cases are not in English, so benign FPR partly measures multilingual
   over-blocking.
-- **Truncation is part of what is measured.** 23 of 277 cases exceed 512
-  tokens (17 of the 40 in-the-wild jailbreaks). LlamaFirewall, LLM Guard (FULL)
-  and raw DeBERTa see only the first 512 tokens; LLMWarden and raw PG2-22M
-  score overlapping windows. These are the systems' shipped behaviours.
+- **Truncation is part of what is measured.** 23 of 277 cases exceed 512 tokens
+  (17 of the 40 in-the-wild jailbreaks). LLM Guard (FULL) and raw DeBERTa see
+  only the first 512 tokens; LLMWarden and raw PG2-22M score overlapping
+  windows. These are the systems' shipped behaviours.
 - **Threshold semantics differ only at the boundary.** LLM Guard rounds to 2
-  decimals and blocks on `>`; the others block on `>=`. On this corpus no score
-  falls within 0.005 of any threshold, so this changes no verdict.
-- **LlamaFirewall's preprocessing fails open.** If its whitespace-aware
-  preprocessing raises, it silently scores the unpreprocessed text.
-- **Reproduction caveat.** LLM Guard and LlamaFirewall pin `transformers`
-  4.51.3, which has published CVEs. They were run in isolated, hash-locked
-  environments, offline, with model revisions pinned and their configs
-  inspected. This affects how to rerun them safely, not their scores.
+  decimals and blocks on `>`; the others block on `>=`. No LLM Guard score falls
+  within 0.005 of a threshold it is compared against (0.92, 0.4, 0.25, 0.1), so
+  this changes no verdict here.
+- **LLMWarden's decoded-candidate scoring is time-bounded.** `scan()` stops
+  scoring decoded encoding candidates after 180 ms of wall-clock time, so a much
+  slower machine could reach a different verdict. The runner loads the model
+  before scoring, so loading time is never counted; a cold run and two warm-up
+  runs of v3 gave identical per-case results.
+- **LlamaFirewall is not yet scored.** It is waiting on gated access to Prompt
+  Guard 2 (86M) and is absent from every table above. When it is scored, note
+  that its whitespace-aware preprocessing fails open: if that raises, the
+  unpreprocessed text is scored.
+- **Reproduction caveat.** The LLM Guard and LlamaFirewall environments pin
+  `transformers` 4.51.3, which has published CVEs. Both are isolated and
+  hash-locked, and scoring runs offline with model revisions pinned and
+  configs inspected. This affects how to rerun them safely, not the scores.
 - **Scope** is direct-input injection/jailbreak detection only; output, PII,
   secret and tool-call scanning are not compared. Point-in-time results on a
   small corpus, not an exhaustive red-team.
