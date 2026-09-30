@@ -1,8 +1,9 @@
 # llmwarden-benchmarks
 
 A versioned evasion-case corpus and scorer for prompt-injection detectors. It compares
-[LLMWarden](https://github.com/swadams2/llmwarden)'s full `LLMWarden.scan()` pipeline with the
-classifier it bundles used raw, and with two third-party detectors and their own raw model, all on
+LLMWarden's full `LLMWarden.scan()` pipeline (LLMWarden is a private repository, not publicly
+available; see [Without LLMWarden access](#without-llmwarden-access)) with the classifier it
+bundles used raw, and with two third-party detectors and their own raw model, all on
 the same input:
 
 | System | What is scored |
@@ -45,6 +46,9 @@ pip install -e ".[dev]"
 ```
 
 `llmwarden[classifier]` is pinned to a commit SHA, not a mutable tag (see `pyproject.toml`).
+This install needs read access to LLMWarden's private repository: without it, pip's clone of
+that dependency fails with "Repository not found". See
+[Without LLMWarden access](#without-llmwarden-access) for what reproduces without it.
 
 **Third-party environments** (Python 3.12: llm-guard 0.3.16 does not support 3.13; the commands use
 [uv](https://docs.astral.sh/uv/)). Paths are shown for Windows; on macOS/Linux use `bin/` in place of `Scripts/`.
@@ -65,6 +69,32 @@ the comments of `requirements-llamafirewall.in`.
 
 LLM Guard and LlamaFirewall's pinned `transformers` 4.51.3 has published CVEs. Keep these two
 environments separate from anything else, and score offline as below.
+
+## Without LLMWarden access
+
+Everything except the LLMWarden and raw PG2-22M columns reproduces without access to LLMWarden.
+Skip `pip install -e .` (it pulls the private dependency) and run from the repository root:
+
+- **Tests:** a plain venv with only pytest. Tests that need LLMWarden, or a third-party venv
+  you haven't set up, skip with a stated reason.
+
+  ```bash
+  python -m venv .venv-plain && .venv-plain/Scripts/python -m pip install pytest
+  .venv-plain/Scripts/python -m pytest
+  ```
+
+- **Corpora:** both rebuild as in [Rebuild the corpus from source](#rebuild-the-corpus-from-source).
+  v2 needs only Python; v3 needs the build-corpus lock and downloads its public datasets without a token.
+- **LLM Guard and raw DeBERTa:** set up `.venv-llmguard` as above, prepare DeBERTa and run both
+  runners as in steps 1 and 2 below. Then score them, without installing this package:
+
+  ```bash
+  .venv-plain/Scripts/python -m benchmarks.scorer corpus/evasion_corpus_v3.jsonl \
+      "LLM Guard=results/v3/llm_guard.jsonl" "raw DeBERTa=results/v3/raw_deberta.jsonl"
+  ```
+
+Regenerating `RESULTS.md` as published needs the LLMWarden and raw PG2-22M results, and so
+needs LLMWarden installed.
 
 ## Reproduce the results
 
