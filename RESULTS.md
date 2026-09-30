@@ -12,13 +12,15 @@ Corpus: `corpus/evasion_corpus_v3.jsonl`, 277 cases (148 malicious / 129 benign)
 > re-scored on v0.8.0, and every system's `permissive` column now uses 0.7.
 > LLM Guard and raw DeBERTa scores are unchanged; only their `permissive`
 > verdicts move, with the new threshold. The frozen v1 section at the end was
-> scored before the fix and is kept as published.
+> scored before the fix and is kept as published. Re-checked on v0.8.3 the
+> same day: its LLMWarden and raw PG2-22M results are byte-identical to
+> v0.8.0's, so the tables below apply to both.
 
 ## Systems
 
 | System | What it is | What is scored | Own shipped decision |
 |---|---|---|---|
-| LLMWarden | LLMWarden v0.8.0 (`62f2a8a`) | full `scan()` pipeline: fast-path signature scanner, Unicode normalization, encoding candidate-feeding and overlapping-window classification over Llama Prompt Guard 2 (22M) | `balanced` profile: block when score >= 0.25 |
+| LLMWarden | LLMWarden v0.8.3 (`1353791`) | full `scan()` pipeline: fast-path signature scanner, Unicode normalization, encoding candidate-feeding and overlapping-window classification over Llama Prompt Guard 2 (22M) | `balanced` profile: block when score >= 0.25 |
 | raw PG2-22M | Llama Prompt Guard 2 (22M), raw | LLMWarden's own `PromptGuard2Classifier().score(text)`: no fast path, normalization or decoding. Its overlapping 512-token windows (up to 8) still apply, so long inputs are not truncated | none (raw model) |
 | LLM Guard | LLM Guard 0.3.16 `PromptInjection` | `protectai/deberta-v3-base-prompt-injection-v2` @ `89b085cd` at the default `MatchType.FULL`: the whole prompt as one input, truncated at 512 tokens | block when the injection score, rounded to 2 decimals, is > 0.92 |
 | raw DeBERTa | deberta-v3-base-prompt-injection-v2, raw | the same model and revision as LLM Guard: tokenizer + softmax, truncated at 512 tokens, no scanner | none (raw model) |

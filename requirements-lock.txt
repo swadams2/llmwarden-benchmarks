@@ -15,8 +15,8 @@ huggingface_hub==1.30.0
 idna==3.19
 iniconfig==2.3.0
 Jinja2==3.1.6
-llmwarden @ git+https://github.com/swadams2/llmwarden.git@62f2a8ae6100c6d2d9fd90c1cb5f7376e44ea8ee
--e git+https://github.com/swadams2/llmwarden-benchmarks.git@8606ebc0aaf3c51553878ce41bc747f75375400c#egg=llmwarden_benchmarks
+llmwarden @ git+https://github.com/swadams2/llmwarden.git@1353791b3398ef7125aed573cfa36f82a857cdf8
+-e git+https://github.com/swadams2/llmwarden-benchmarks.git@353be202ec88a96d3c5a29432384bde600aecd7c#egg=llmwarden_benchmarks
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3
 mdurl==0.1.2

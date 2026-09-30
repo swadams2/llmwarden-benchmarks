@@ -51,7 +51,7 @@ LLMWARDEN_CANDIDATE_BUDGET_MS = 180
 # third-party systems follows the spec (Phase 2, "System descriptions").
 SYSTEM_DESCRIPTIONS: dict[str, tuple[str, str, str]] = {
     "LLMWarden": (
-        "LLMWarden v0.8.0 (`62f2a8a`)",
+        "LLMWarden v0.8.3 (`1353791`)",
         (
             "full `scan()` pipeline: fast-path signature scanner, Unicode normalization, "
             "encoding candidate-feeding and overlapping-window classification over "
@@ -130,8 +130,8 @@ datasets that LLMWarden was not tuned on, deduplicated and human-reviewed (see
 
 # Dated, hand-written correction for the 2026-09-29 publication (8606ebc). It
 # names versions and thresholds but no result numbers (those live only in the
-# generated tables). Its "re-scored on v0.8.0" describes the current tables:
-# revise or remove this note at the next re-score.
+# generated tables). Its "re-scored on v0.8.0" and "re-checked on v0.8.3"
+# describe the current tables: revise or remove this note at the next re-score.
 CORRECTION_NOTE = """\
 > **Correction (2026-09-30).** The v3 tables first published on 2026-09-29
 > ([`8606ebc`](https://github.com/swadams2/llmwarden-benchmarks/blob/8606ebc/RESULTS.md))
@@ -143,7 +143,9 @@ CORRECTION_NOTE = """\
 > re-scored on v0.8.0, and every system's `permissive` column now uses 0.7.
 > LLM Guard and raw DeBERTa scores are unchanged; only their `permissive`
 > verdicts move, with the new threshold. The frozen v1 section at the end was
-> scored before the fix and is kept as published.
+> scored before the fix and is kept as published. Re-checked on v0.8.3 the
+> same day: its LLMWarden and raw PG2-22M results are byte-identical to
+> v0.8.0's, so the tables below apply to both.
 """
 
 LIMITATIONS_HEAD = """\
