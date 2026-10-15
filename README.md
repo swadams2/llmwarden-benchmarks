@@ -67,8 +67,21 @@ uv pip install --python .venv-llamafirewall/Scripts/python.exe --require-hashes 
 `PromptGuardScanner` path. `pip check` reports them missing; that is expected. The reasoning is in
 the comments of `requirements-llamafirewall.in`.
 
-LLM Guard and LlamaFirewall's pinned `transformers` 4.51.3 has published CVEs. Keep these two
-environments separate from anything else, and score offline as below.
+**Known vulnerabilities (accepted, checked 2026-10-15).** trivy reports HIGH-severity advisories in
+both third-party environments. None can be fixed without modifying the systems under test:
+
+| Package | Locked | Environment | HIGH advisories | Why it stays |
+|---|---|---|---|---|
+| `transformers` | 4.51.3 | both | CVE-2026-4372, CVE-2026-5241, CVE-2026-9856 (fixed in 5.3.0–5.10.0); CVE-2026-80047 (no fix) | llm-guard 0.3.16 pins `==4.51.3`. transformers ≥5.3.0 needs `huggingface-hub>=1.3`, and llamafirewall 1.0.3 imports `HfFolder`, removed in hub 1.0 |
+| `cryptography` | 44.0.3 | llmguard | CVE-2026-26007, CVE-2026-69247, CVE-2026-69249, GHSA-537c-gmf6-5ccf | llm-guard pins `presidio-anonymizer==2.2.358`, which requires `cryptography<44.1` |
+| `json-repair` | 0.44.1 | llmguard | GHSA-xf7x-x43h-rpqh | llm-guard pins `==0.44.1` |
+| `nltk` | 3.10.3 | llmguard | CVE-2026-81726 | No fixed release published |
+
+llm-guard 0.3.16 (archived upstream) and llamafirewall 1.0.3 are the latest releases. Overriding
+their pins would benchmark a modified package instead of the published one. Keep these two
+environments separate from anything else, and score offline as below. When either project ships
+a release, re-scan each lockfile with trivy. trivy only parses files named `requirements.txt`, so
+copy each lockfile to that name in its own directory first.
 
 ## Without LLMWarden access
 
